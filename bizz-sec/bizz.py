@@ -119,6 +119,67 @@ OPERATOR_PREFIX = {
 }
 
 
+
+
+# Kode plat nomor Indonesia
+PLATE_REGION = {
+    "A": "Banten (Serang, Cilegon, Pandeglang, Lebak, Tangerang)",
+    "B": "DKI Jakarta / Depok / Tangerang / Bekasi",
+    "D": "Bandung / Cimahi / Bandung Barat",
+    "E": "Cirebon / Indramayu / Majalengka / Kuningan",
+    "F": "Bogor / Sukabumi / Cianjur",
+    "T": "Purwakarta / Karawang / Subang",
+    "Z": "Garut / Tasikmalaya / Ciamis / Sumedang / Banjar",
+    "G": "Pekalongan / Tegal / Brebes / Batang / Pemalang",
+    "H": "Semarang / Salatiga / Kendal / Demak",
+    "K": "Pati / Kudus / Jepara / Rembang / Blora / Grobogan",
+    "R": "Banyumas / Cilacap / Purbalingga / Banjarnegara",
+    "AA": "Magelang / Purworejo / Kebumen / Temanggung / Wonosobo",
+    "AB": "DI Yogyakarta / Bantul / Sleman / Kulon Progo / Gunungkidul",
+    "AD": "Surakarta / Sukoharjo / Boyolali / Sragen / Karanganyar / Wonogiri / Klaten",
+    "L": "Surabaya",
+    "M": "Madura (Bangkalan / Sampang / Pamekasan / Sumenep)",
+    "N": "Malang / Pasuruan / Probolinggo / Lumajang / Batu",
+    "P": "Jember / Banyuwangi / Bondowoso / Situbondo",
+    "S": "Bojonegoro / Mojokerto / Tuban / Lamongan / Jombang",
+    "W": "Sidoarjo / Gresik",
+    "AE": "Madiun / Ngawi / Magetan / Ponorogo / Pacitan",
+    "AG": "Kediri / Blitar / Tulungagung / Nganjuk / Trenggalek",
+    "DK": "Bali",
+    "DR": "Lombok (Mataram / Lombok Barat / Tengah / Timur)",
+    "EA": "Sumbawa / Dompu / Bima",
+    "DH": "Kupang / Timor",
+    "EB": "Flores / Manggarai / Ende / Sikka",
+    "ED": "Sumba",
+    "KB": "Kalimantan Barat",
+    "DA": "Kalimantan Selatan",
+    "KH": "Kalimantan Tengah",
+    "KT": "Kalimantan Timur",
+    "KU": "Kalimantan Utara",
+    "DB": "Sulawesi Utara (Manado)",
+    "DL": "Sitaro / Talaud",
+    "DM": "Gorontalo",
+    "DN": "Sulawesi Tengah",
+    "DT": "Sulawesi Tenggara",
+    "DD": "Sulawesi Selatan (Makassar)",
+    "DP": "Sulawesi Barat",
+    "DW": "Sulawesi Barat (Mamuju)",
+    "DE": "Maluku",
+    "DG": "Maluku Utara",
+    "PA": "Papua",
+    "PB": "Papua Barat",
+    "BL": "Aceh",
+    "BB": "Sumatera Utara (Tapanuli)",
+    "BK": "Sumatera Utara (Medan)",
+    "BA": "Sumatera Barat",
+    "BM": "Riau",
+    "BP": "Kepulauan Riau",
+    "BG": "Sumatera Selatan",
+    "BN": "Bangka Belitung",
+    "BE": "Lampung",
+    "BD": "Bengkulu",
+    "BH": "Jambi",
+}
 # ============================================================
 # HELPER
 # ============================================================
@@ -1115,6 +1176,94 @@ CATATAN:
         log("ok", f"Saved {len(candidates)} kandidat → {path}")
         log("info", "Ambil kandidat yang match dari dork / sumber lain.")
 
+
+    def plate_osint(self):
+        print(f"\n{C}=== OSINT PLAT NOMOR KENDARAAN ==={RESET}")
+        raw = prompt("Nomor polisi (contoh: B 1234 ABC / DK 1234 XY)").strip().upper()
+        if not raw:
+            return
+
+        # Normalisasi
+        cleaned = re.sub(r"[^A-Z0-9]", " ", raw).strip()
+        parts = cleaned.split()
+        if len(parts) < 2:
+            log("err", "Format salah. Contoh: B 1234 ABC")
+            return
+
+        # Ambil kode wilayah (1-2 huruf di depan)
+        kode = parts[0]
+        nomor = " ".join(parts[1:])
+
+        wilayah = PLATE_REGION.get(kode)
+        if not wilayah:
+            # coba 2 huruf
+            if len(parts[0]) >= 2:
+                kode = parts[0][:2]
+                wilayah = PLATE_REGION.get(kode)
+            if not wilayah:
+                wilayah = "Wilayah tidak dikenali / kode baru"
+
+        log("ok", f"Input     : {raw}")
+        log("ok", f"Kode      : {kode}")
+        log("ok", f"Nomor     : {nomor}")
+        log("ok", f"Wilayah   : {wilayah}")
+
+        print(f"""
+{C}--- INFO YANG BISA DIAMBIL PUBLIC ---{RESET}
+  Kode wilayah  : {kode}
+  Area registrasi: {wilayah}
+  Format plat   : {kode} {nomor}
+
+{Y}Data pemilik (nama, NIK, alamat), merek, tipe, tahun, pajak
+TIDAK tersedia lewat API public gratis.
+Gunakan kanal resmi:
+  - Aplikasi SIGNAL (Korlantas Polri)
+  - e-Samsat / Bapenda daerah
+  - SMS sesuai wilayah (lihat dork di bawah)
+{RESET}""")
+
+        # Dork + link resmi
+        print(f"{C}--- LINK & DORK ---{RESET}")
+        queries = [
+            f'"{raw}"',
+            f'"{kode} {nomor}"',
+            f'"{raw}" (STNK OR PKB OR pajak OR samsat)',
+            f'"{raw}" site:pastebin.com OR site:ghostbin.com',
+        ]
+        for q in queries:
+            print(f"  https://www.google.com/search?q={urllib.parse.quote(q)}")
+
+        print(f"""
+{C}Kanal resmi cek pajak / info kendaraan:{RESET}
+  SIGNAL App     : Google Play / App Store (Korlantas)
+  Jakarta        : https://samsat-pkb2.jakarta.go.id
+  Jawa Barat     : https://bapenda.jabarprov.go.id/infopkb/
+  Jawa Tengah    : https://cekpajak.com/jawa-tengah/
+  Jawa Timur     : info.dipendajatim.go.id
+  DIY            : https://samsat.jogjaprov.go.id
+""")
+
+        # SMS format hint
+        print(f"{C}Format SMS (beberapa daerah):{RESET}")
+        print("  Jakarta  : INFO RANMOR <nopol>  → 8893")
+        print("  Jabar    : INFO <nopol> <warna> → 08112119211")
+        print("  Jatim    : JATIM <nopol>        → 7070")
+        print("  Jateng   : JATENG <nopol>       → 9600")
+
+        report = f"""OSINT Plat Nomor - BIZZ SEC
+Input   : {raw}
+Kode    : {kode}
+Nomor   : {nomor}
+Wilayah : {wilayah}
+
+Catatan: Data pemilik & detail kendaraan hanya di sistem resmi
+(Samsat / SIGNAL / Bapenda). Tidak ada API public gratis.
+"""
+        safe = re.sub(r"[^\w]", "_", raw)[:20]
+        path = save_out(f"plate_{safe}.txt", report)
+        log("ok", f"Saved: {path}")
+
+
     def run(self):
         print(f"""
 {C}[ OSINT MENU ]{RESET}
@@ -1125,13 +1274,14 @@ CATATAN:
   {G}[5]{RESET} NIK Lookup (KTP Parse)
   {G}[6]{RESET} WhatsApp / Nomor OSINT
   {G}[7]{RESET} Lacak NIK (Nama+Wilayah+TTL)
+  {G}[8]{RESET} Plat Nomor Kendaraan
   {G}[0]{RESET} Kembali
 """)
         p = input(f"{C}[?]{RESET} Pilih: ").strip()
         fn = {"1": self.username_search, "2": self.ip_geo,
               "3": self.ip_public, "4": self.email_check,
               "5": self.nik_lookup, "6": self.whatsapp_osint,
-              "7": self.nik_lacak}
+              "7": self.nik_lacak, "8": self.plate_osint}
         if p in fn:
             fn[p]()
 
