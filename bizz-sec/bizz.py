@@ -2,6 +2,7 @@
 """
 BIZZ SEC v1 — multi-tool security framework.
 Jalan di Termux tanpa root. Real work, no fake.
+Upgrade: OSINT NIK full parse + OSINT nomor WhatsApp lengkap.
 """
 
 import base64
@@ -18,6 +19,7 @@ import sys
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 import requests
 import urllib3
@@ -73,6 +75,47 @@ UA_LIST = [
     "Mozilla/5.0 (X11; Linux x86_64) Firefox/121.0",
     "curl/8.0",
 ]
+
+
+# ============================================================
+# NIK DATA (kode wilayah + operator)
+# ============================================================
+PROVINSI = {
+    "11": "ACEH", "12": "SUMATERA UTARA", "13": "SUMATERA BARAT",
+    "14": "RIAU", "15": "JAMBI", "16": "SUMATERA SELATAN",
+    "17": "BENGKULU", "18": "LAMPUNG", "19": "KEPULAUAN BANGKA BELITUNG",
+    "21": "KEPULAUAN RIAU", "31": "DKI JAKARTA", "32": "JAWA BARAT",
+    "33": "JAWA TENGAH", "34": "DI YOGYAKARTA", "35": "JAWA TIMUR",
+    "36": "BANTEN", "51": "BALI", "52": "NUSA TENGGARA BARAT",
+    "53": "NUSA TENGGARA TIMUR", "61": "KALIMANTAN BARAT",
+    "62": "KALIMANTAN TENGAH", "63": "KALIMANTAN SELATAN",
+    "64": "KALIMANTAN TIMUR", "65": "KALIMANTAN UTARA",
+    "71": "SULAWESI UTARA", "72": "SULAWESI TENGAH",
+    "73": "SULAWESI SELATAN", "74": "SULAWESI TENGGARA",
+    "75": "GORONTALO", "76": "SULAWESI BARAT", "81": "MALUKU",
+    "82": "MALUKU UTARA", "91": "PAPUA", "92": "PAPUA BARAT",
+    "93": "PAPUA SELATAN", "94": "PAPUA TENGAH", "95": "PAPUA PEGUNUNGAN",
+    "96": "PAPUA BARAT DAYA",
+}
+
+# Prefix operator Indonesia (update 2025/2026)
+OPERATOR_PREFIX = {
+    "0811": "Telkomsel (Halo)", "0812": "Telkomsel (SimPATI/Halo)",
+    "0813": "Telkomsel (SimPATI/Halo)", "0821": "Telkomsel (SimPATI)",
+    "0822": "Telkomsel (SimPATI)", "0823": "Telkomsel (AS)",
+    "0851": "Telkomsel (AS)", "0852": "Telkomsel (AS)", "0853": "Telkomsel (AS)",
+    "0814": "Indosat (IM3)", "0815": "Indosat (IM3/Mentari)",
+    "0816": "Indosat (IM3/Mentari)", "0855": "Indosat (Matrix)",
+    "0856": "Indosat (IM3)", "0857": "Indosat (IM3)", "0858": "Indosat (Mentari)",
+    "0817": "XL", "0818": "XL", "0819": "XL", "0859": "XL",
+    "0877": "XL", "0878": "XL",
+    "0831": "Axis", "0832": "Axis", "0833": "Axis", "0838": "Axis",
+    "0881": "Smartfren", "0882": "Smartfren", "0883": "Smartfren",
+    "0884": "Smartfren", "0885": "Smartfren", "0886": "Smartfren",
+    "0887": "Smartfren", "0888": "Smartfren", "0889": "Smartfren",
+    "0895": "Tri (3)", "0896": "Tri (3)", "0897": "Tri (3)",
+    "0898": "Tri (3)", "0899": "Tri (3)",
+}
 
 
 # ============================================================
@@ -378,7 +421,9 @@ class Recon:
               "9": self.header_analysis, "10": self.robots}
         if p in fn:
             fn[p]()
-         # ============================================================
+
+
+# ============================================================
 # [2] WEB TEST
 # ============================================================
 class WebTest:
@@ -702,6 +747,185 @@ class OSINT:
         except Exception as e:
             log("err", str(e))
 
+    def nik_lookup(self):
+        print(f"\n{C}=== NIK OSINT (KTP PARSE) ==={RESET}")
+        nik = prompt("NIK 16 digit").strip()
+        if not nik or not nik.isdigit() or len(nik) != 16:
+            log("err", "NIK harus 16 digit angka")
+            return
+
+        # Parse struktur
+        prov_code = nik[0:2]
+        kab_code = nik[0:4]
+        kec_code = nik[0:6]
+        tgl = int(nik[6:8])
+        bln = int(nik[8:10])
+        thn = int(nik[10:12])
+        uniq = nik[12:16]
+
+        # Gender & tanggal
+        gender = "PEREMPUAN" if tgl > 40 else "LAKI-LAKI"
+        if tgl > 40:
+            tgl -= 40
+        tahun = 1900 + thn if thn > 30 else 2000 + thn  # rough century
+
+        try:
+            lahir = datetime(tahun, bln, tgl)
+            umur = (datetime.now() - lahir).days // 365
+            lahir_str = lahir.strftime("%d-%m-%Y")
+        except Exception:
+            lahir_str = f"{tgl:02d}-{bln:02d}-{tahun}"
+            umur = "?"
+
+        prov_name = PROVINSI.get(prov_code, "UNKNOWN")
+        log("ok", f"NIK         : {nik}")
+        log("ok", f"Provinsi    : {prov_code} - {prov_name}")
+        log("ok", f"Kab/Kota    : {kab_code}")
+        log("ok", f"Kecamatan   : {kec_code}")
+        log("ok", f"TTL         : {lahir_str}")
+        log("ok", f"Jenis Kelamin: {gender}")
+        log("ok", f"Umur approx : {umur} tahun")
+        log("ok", f"Uniq code   : {uniq}")
+
+        # Coba API nusakit (public, no key)
+        try:
+            r = requests.get(
+                f"https://nusakit.my.id/v1/nik/validate?nik={nik}",
+                timeout=12,
+                headers={"User-Agent": random.choice(UA_LIST)}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                log("info", "--- Hasil API nusakit ---")
+                print(json.dumps(data, indent=2, ensure_ascii=False)[:1500])
+        except Exception as e:
+            log("warn", f"API nusakit gagal: {e}")
+
+        # Google dork style search (public)
+        dorks = [
+            f'"{nik}"',
+            f'"{nik}" (ktp OR dukcapil OR penduduk)',
+            f'"{nik}" site:pastebin.com OR site:ghostbin.com',
+        ]
+        log("info", "Dork search links (buka manual):")
+        for d in dorks:
+            q = urllib.parse.quote(d)
+            print(f"  https://www.google.com/search?q={q}")
+
+        out = f"""NIK OSINT Report
+NIK: {nik}
+Provinsi: {prov_code} - {prov_name}
+Kab/Kota: {kab_code}
+Kecamatan: {kec_code}
+TTL: {lahir_str}
+Gender: {gender}
+Umur: {umur}
+Uniq: {uniq}
+"""
+        path = save_out(f"nik_{nik}.txt", out)
+        log("ok", f"Saved: {path}")
+
+    def whatsapp_osint(self):
+        print(f"\n{C}=== WHATSAPP / NOMOR OSINT ==={RESET}")
+        raw = prompt("Nomor WhatsApp (contoh: 081234567890 atau +6281234567890)")
+        if not raw:
+            return
+
+        # Normalisasi
+        num = re.sub(r"[^\d+]", "", raw)
+        if num.startswith("+62"):
+            num = "0" + num[3:]
+        elif num.startswith("62"):
+            num = "0" + num[2:]
+        elif not num.startswith("0"):
+            num = "0" + num
+
+        if not re.match(r"^08\d{8,12}$", num):
+            log("err", "Format nomor Indonesia nggak valid")
+            return
+
+        e164 = "+62" + num[1:]
+        log("ok", f"Normalized : {num}")
+        log("ok", f"E.164      : {e164}")
+
+        # Operator dari prefix
+        op = "Unknown"
+        for pref, name in OPERATOR_PREFIX.items():
+            if num.startswith(pref):
+                op = name
+                break
+        log("ok", f"Operator   : {op}")
+
+        # Length & type
+        log("info", f"Panjang    : {len(num)} digit")
+        log("info", f"Tipe       : Mobile (Indonesia)")
+
+        # Coba cek presence via public endpoints (best-effort)
+        log("info", "Cek presence aplikasi...")
+        apps = []
+
+        # WhatsApp deep-link style (public)
+        try:
+            # Tidak ada free public API yang reliable tanpa key, jadi kita kasih signal + dork
+            wa_link = f"https://wa.me/{e164[1:]}"
+            log("ok", f"WhatsApp link: {wa_link}")
+            apps.append("WhatsApp (link generated)")
+        except Exception:
+            pass
+
+        # Telegram
+        try:
+            tg = f"https://t.me/{e164}"
+            log("info", f"Telegram check link: {tg}")
+        except Exception:
+            pass
+
+        # Truecaller style public search
+        log("info", "Public search links:")
+        queries = [
+            f'"{num}"',
+            f'"{e164}"',
+            f'"{num}" (whatsapp OR telegram OR truecaller)',
+            f'"{num}" site:pastebin.com OR site:leak OR site:breach',
+        ]
+        for q in queries:
+            print(f"  https://www.google.com/search?q={urllib.parse.quote(q)}")
+
+        # Leak / breach signal (public indexes)
+        log("info", "Cek sinyal kebocoran (public indexes)...")
+        try:
+            # Hudson Rock style public (best-effort)
+            r = requests.get(
+                f"https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-phone?phone={e164}",
+                timeout=12,
+                headers={"User-Agent": random.choice(UA_LIST)}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("stealers") or data.get("total"):
+                    log("crit", f"Infostealer signal ditemukan: {json.dumps(data)[:300]}")
+                else:
+                    log("ok", "Tidak ada signal infostealer publik")
+            else:
+                log("warn", f"HudsonRock status {r.status_code}")
+        except Exception as e:
+            log("warn", f"Leak check: {e}")
+
+        # Ringkasan
+        report = f"""WhatsApp / Nomor OSINT Report
+Input     : {raw}
+Normalized: {num}
+E.164     : {e164}
+Operator  : {op}
+Panjang   : {len(num)}
+Apps link : WhatsApp wa.me/{e164[1:]}
+Telegram  : t.me/{e164}
+Dorks     : lihat output di atas
+"""
+        path = save_out(f"wa_{num}.txt", report)
+        log("ok", f"Saved: {path}")
+        log("info", "Catatan: data lengkap KTP (nama, alamat, agama) dari NIK butuh akses database resmi. Tool ini kasih parse struktur + public OSINT saja.")
+
     def run(self):
         print(f"""
 {C}[ OSINT MENU ]{RESET}
@@ -709,11 +933,14 @@ class OSINT:
   {G}[2]{RESET} IP Geolocation
   {G}[3]{RESET} Your Public IP
   {G}[4]{RESET} Email MX Check
+  {G}[5]{RESET} NIK Lookup (KTP Parse)
+  {G}[6]{RESET} WhatsApp / Nomor OSINT
   {G}[0]{RESET} Kembali
 """)
         p = input(f"{C}[?]{RESET} Pilih: ").strip()
         fn = {"1": self.username_search, "2": self.ip_geo,
-              "3": self.ip_public, "4": self.email_check}
+              "3": self.ip_public, "4": self.email_check,
+              "5": self.nik_lookup, "6": self.whatsapp_osint}
         if p in fn:
             fn[p]()
 
@@ -1083,7 +1310,9 @@ class Scan:
               "3": self.ssl_check, "4": self.ping, "5": self.traceroute}
         if p in fn:
             fn[p]()
-           # ============================================================
+
+
+# ============================================================
 # MAIN
 # ============================================================
 def main():
@@ -1143,4 +1372,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print(f"\n{Y}[!] Keluar.{RESET}")
-        sys.exit(0)    
+        sys.exit(0)
