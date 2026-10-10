@@ -958,6 +958,132 @@ Telegram  : https://t.me/{e164}
         path = save_out(f"wa_{num}.txt", report)
         log("ok", f"Saved: {path}")
 
+    def nik_lacak(self):
+        print(f"\n{C}=== LACAK NIK (dari Nama + Wilayah + TTL) ==={RESET}")
+        log("info", "Input data yang diketahui → generate kandidat NIK + dork")
+        print()
+
+        nama = prompt("Nama lengkap")
+        if not nama:
+            log("err", "Nama wajib diisi")
+            return
+
+        print(f"\n{Y}Daftar Provinsi (kode):{RESET}")
+        for kode, nama_p in sorted(PROVINSI.items()):
+            print(f"  {kode} = {nama_p}")
+        prov_code = prompt("Kode Provinsi (2 digit, contoh: 36)").strip()
+        if prov_code not in PROVINSI:
+            log("err", "Kode provinsi nggak valid")
+            return
+        prov_name = PROVINSI[prov_code]
+
+        kab_code = prompt("Kode Kab/Kota (2 digit, contoh: 04 untuk Serang)").strip()
+        if not kab_code.isdigit() or len(kab_code) != 2:
+            log("err", "Kode kab/kota harus 2 digit")
+            return
+        full_kab = prov_code + kab_code
+
+        kec_code = prompt("Kode Kecamatan (2 digit, kosong = 00)", "00").strip()
+        if not kec_code.isdigit() or len(kec_code) != 2:
+            kec_code = "00"
+        full_kec = full_kab + kec_code
+
+        tgl_str = prompt("Tanggal lahir (DD-MM-YYYY, contoh: 10-02-2003)")
+        try:
+            parts = tgl_str.replace("/", "-").split("-")
+            if len(parts) != 3:
+                raise ValueError
+            tgl, bln, thn = int(parts[0]), int(parts[1]), int(parts[2])
+            if thn < 100:
+                thn += 2000 if thn < 30 else 1900
+            datetime(thn, bln, tgl)  # validasi
+        except Exception:
+            log("err", "Format tanggal salah. Pakai DD-MM-YYYY")
+            return
+
+        gender = prompt("Jenis kelamin (L/P)", "L").strip().upper()
+        if gender not in ("L", "P", "LAKI-LAKI", "PEREMPUAN"):
+            gender = "L"
+        is_female = gender.startswith("P")
+
+        # Bangun bagian tanggal NIK
+        dd = tgl + 40 if is_female else tgl
+        mm = bln
+        yy = thn % 100
+        date_part = f"{dd:02d}{mm:02d}{yy:02d}"
+
+        prefix = full_kec + date_part  # 12 digit pertama
+
+        log("ok", f"Nama        : {nama}")
+        log("ok", f"Provinsi    : {prov_code} - {prov_name}")
+        log("ok", f"Kab/Kota    : {full_kab}")
+        log("ok", f"Kecamatan   : {full_kec}")
+        log("ok", f"TTL         : {tgl:02d}-{bln:02d}-{thn}")
+        log("ok", f"Gender      : {'PEREMPUAN' if is_female else 'LAKI-LAKI'}")
+        log("ok", f"Prefix NIK  : {prefix}XXXX")
+
+        # Generate kandidat serial
+        max_serial = prompt("Generate berapa serial? (default 50, max 200)", "50")
+        try:
+            max_serial = min(int(max_serial), 200)
+        except Exception:
+            max_serial = 50
+
+        candidates = [f"{prefix}{i:04d}" for i in range(1, max_serial + 1)]
+
+        print(f"\n{C}--- KANDIDAT NIK (serial 0001-{max_serial:04d}) ---{RESET}")
+        for i, nik in enumerate(candidates[:20]):
+            print(f"  {G}{nik}{RESET}")
+        if len(candidates) > 20:
+            print(f"  ... +{len(candidates)-20} lagi (lihat file output)")
+
+        # Dork links
+        print(f"\n{C}--- DORK SEARCH (buka manual) ---{RESET}")
+        dorks = [
+            f'"{nama}"',
+            f'"{nama}" "{prov_name}"',
+            f'"{nama}" {tgl:02d}-{bln:02d}-{thn}',
+            f'"{nama}" NIK OR KTP',
+            f'"{nama}" site:pastebin.com OR site:ghostbin.com',
+            f'"{prefix}"',
+        ]
+        for d in dorks:
+            q = urllib.parse.quote(d)
+            print(f"  https://www.google.com/search?q={q}")
+
+        # Simpan
+        out = f"""LACAK NIK Report - BIZZ SEC
+========================================
+Nama        : {nama}
+Provinsi    : {prov_code} - {prov_name}
+Kab/Kota    : {full_kab}
+Kecamatan   : {full_kec}
+TTL         : {tgl:02d}-{bln:02d}-{thn}
+Gender      : {'PEREMPUAN' if is_female else 'LAKI-LAKI'}
+Prefix NIK  : {prefix}XXXX
+
+KANDIDAT NIK (serial 0001-{max_serial:04d}):
+"""
+        out += "\n".join(candidates)
+        out += f"""
+
+DORK LINKS:
+"""
+        for d in dorks:
+            out += f"https://www.google.com/search?q={urllib.parse.quote(d)}\n"
+
+        out += """
+CATATAN:
+- Serial 4 digit terakhir hanya diketahui Dukcapil.
+- Tool ini generate semua kemungkinan berdasarkan wilayah + TTL.
+- Cocokkan kandidat dengan hasil dork / sumber lain.
+- Tidak ada API public yang return NIK asli dari nama.
+"""
+        safe_name = re.sub(r"[^\w]", "_", nama)[:30]
+        path = save_out(f"lacak_nik_{safe_name}.txt", out)
+        log("ok", f"Saved {len(candidates)} kandidat → {path}")
+        log("info", "Ambil kandidat yang match dari dork / sumber lain.")
+
     def run(self):
         print(f"""
 {C}[ OSINT MENU ]{RESET}
@@ -967,12 +1093,14 @@ Telegram  : https://t.me/{e164}
   {G}[4]{RESET} Email MX Check
   {G}[5]{RESET} NIK Lookup (KTP Parse)
   {G}[6]{RESET} WhatsApp / Nomor OSINT
+  {G}[7]{RESET} Lacak NIK (Nama+Wilayah+TTL)
   {G}[0]{RESET} Kembali
 """)
         p = input(f"{C}[?]{RESET} Pilih: ").strip()
         fn = {"1": self.username_search, "2": self.ip_geo,
               "3": self.ip_public, "4": self.email_check,
-              "5": self.nik_lookup, "6": self.whatsapp_osint}
+              "5": self.nik_lookup, "6": self.whatsapp_osint,
+              "7": self.nik_lacak}
         if p in fn:
             fn[p]()
 
