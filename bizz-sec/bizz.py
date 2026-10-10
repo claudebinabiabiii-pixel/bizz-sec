@@ -2,7 +2,7 @@
 """
 BIZZ SEC v1 — multi-tool security framework.
 Jalan di Termux tanpa root. Real work, no fake.
-Upgrade: OSINT NIK full parse + OSINT nomor WhatsApp lengkap.
+Upgrade final: OSINT NIK (struktur + template KTP lengkap) + WhatsApp OSINT.
 """
 
 import base64
@@ -78,7 +78,7 @@ UA_LIST = [
 
 
 # ============================================================
-# NIK DATA (kode wilayah + operator)
+# NIK DATA
 # ============================================================
 PROVINSI = {
     "11": "ACEH", "12": "SUMATERA UTARA", "13": "SUMATERA BARAT",
@@ -98,7 +98,7 @@ PROVINSI = {
     "96": "PAPUA BARAT DAYA",
 }
 
-# Prefix operator Indonesia (update 2025/2026)
+# Prefix operator Indonesia
 OPERATOR_PREFIX = {
     "0811": "Telkomsel (Halo)", "0812": "Telkomsel (SimPATI/Halo)",
     "0813": "Telkomsel (SimPATI/Halo)", "0821": "Telkomsel (SimPATI)",
@@ -763,31 +763,36 @@ class OSINT:
         thn = int(nik[10:12])
         uniq = nik[12:16]
 
-        # Gender & tanggal
-        gender = "PEREMPUAN" if tgl > 40 else "LAKI-LAKI"
+        gender = "LAKI-LAKI"
         if tgl > 40:
+            gender = "PEREMPUAN"
             tgl -= 40
-        tahun = 1900 + thn if thn > 30 else 2000 + thn  # rough century
+        tahun = 1900 + thn if thn > 30 else 2000 + thn
 
         try:
             lahir = datetime(tahun, bln, tgl)
             umur = (datetime.now() - lahir).days // 365
             lahir_str = lahir.strftime("%d-%m-%Y")
+            lahir_iso = lahir.strftime("%Y-%m-%d")
         except Exception:
             lahir_str = f"{tgl:02d}-{bln:02d}-{tahun}"
+            lahir_iso = f"{tahun}-{bln:02d}-{tgl:02d}"
             umur = "?"
 
         prov_name = PROVINSI.get(prov_code, "UNKNOWN")
-        log("ok", f"NIK         : {nik}")
-        log("ok", f"Provinsi    : {prov_code} - {prov_name}")
-        log("ok", f"Kab/Kota    : {kab_code}")
-        log("ok", f"Kecamatan   : {kec_code}")
-        log("ok", f"TTL         : {lahir_str}")
-        log("ok", f"Jenis Kelamin: {gender}")
-        log("ok", f"Umur approx : {umur} tahun")
-        log("ok", f"Uniq code   : {uniq}")
 
-        # Coba API nusakit (public, no key)
+        # Output struktur
+        log("ok", f"NIK            : {nik}")
+        log("ok", f"Provinsi       : {prov_code} - {prov_name}")
+        log("ok", f"Kab/Kota       : {kab_code}")
+        log("ok", f"Kecamatan      : {kec_code}")
+        log("ok", f"TTL            : {lahir_str}")
+        log("ok", f"Jenis Kelamin  : {gender}")
+        log("ok", f"Umur approx    : {umur} tahun")
+        log("ok", f"Uniq code      : {uniq}")
+
+        # API nusakit
+        api_data = None
         try:
             r = requests.get(
                 f"https://nusakit.my.id/v1/nik/validate?nik={nik}",
@@ -795,32 +800,84 @@ class OSINT:
                 headers={"User-Agent": random.choice(UA_LIST)}
             )
             if r.status_code == 200:
-                data = r.json()
+                api_data = r.json()
                 log("info", "--- Hasil API nusakit ---")
-                print(json.dumps(data, indent=2, ensure_ascii=False)[:1500])
+                print(json.dumps(api_data, indent=2, ensure_ascii=False)[:1200])
         except Exception as e:
             log("warn", f"API nusakit gagal: {e}")
 
-        # Google dork style search (public)
+        # Template KTP lengkap (format yang diminta user)
+        # Field nama/agama/alamat/pekerjaan TIDAK ada di NIK → diisi placeholder
+        # User bisa isi manual atau dari sumber lain
+        print(f"\n{C}{'='*50}")
+        print(f"  TEMPLATE DATA KTP (format resmi)")
+        print(f"{'='*50}{RESET}")
+        print(f"""
+PROVINSI {prov_name}
+KAB/KOTA {kab_code}
+
+NIK                 : {nik}
+Nama                : [ISI MANUAL / DARI SUMBER LAIN]
+Tempat/Tgl Lahir    : [TEMPAT], {lahir_str}
+Jenis kelamin       : {gender}     Gol. Darah : -
+Alamat              : [ISI MANUAL]
+RT/RW               : -
+Kel/Desa            : -
+Kecamatan           : {kec_code}
+Agama               : [ISI MANUAL]
+Status Perkawinan   : -
+Pekerjaan           : -
+Kewarganegaraan     : WNI
+Berlaku Hingga      : SEUMUR HIDUP
+""")
+        log("warn", "Nama, Agama, Alamat, RT/RW, Kel/Desa, Status, Pekerjaan")
+        log("warn", "TIDAK tersimpan di dalam NIK. Hanya bisa didapat dari")
+        log("warn", "database Dukcapil resmi atau sumber lain.")
+
+        # Dork
+        log("info", "Dork search links (buka manual):")
         dorks = [
             f'"{nik}"',
             f'"{nik}" (ktp OR dukcapil OR penduduk)',
             f'"{nik}" site:pastebin.com OR site:ghostbin.com',
         ]
-        log("info", "Dork search links (buka manual):")
         for d in dorks:
             q = urllib.parse.quote(d)
             print(f"  https://www.google.com/search?q={q}")
 
-        out = f"""NIK OSINT Report
-NIK: {nik}
-Provinsi: {prov_code} - {prov_name}
-Kab/Kota: {kab_code}
-Kecamatan: {kec_code}
-TTL: {lahir_str}
-Gender: {gender}
-Umur: {umur}
-Uniq: {uniq}
+        # Simpan report
+        out = f"""NIK OSINT Report - BIZZ SEC
+========================================
+NIK            : {nik}
+Provinsi       : {prov_code} - {prov_name}
+Kab/Kota       : {kab_code}
+Kecamatan      : {kec_code}
+TTL            : {lahir_str}
+Gender         : {gender}
+Umur           : {umur}
+Uniq           : {uniq}
+
+--- TEMPLATE KTP ---
+PROVINSI {prov_name}
+KAB/KOTA {kab_code}
+
+NIK                 : {nik}
+Nama                : [ISI MANUAL]
+Tempat/Tgl Lahir    : [TEMPAT], {lahir_str}
+Jenis kelamin       : {gender}     Gol. Darah : -
+Alamat              : [ISI MANUAL]
+RT/RW               : -
+Kel/Desa            : -
+Kecamatan           : {kec_code}
+Agama               : [ISI MANUAL]
+Status Perkawinan   : -
+Pekerjaan           : -
+Kewarganegaraan     : WNI
+Berlaku Hingga      : SEUMUR HIDUP
+
+Catatan: Nama, Agama, Alamat lengkap, RT/RW, Kel/Desa,
+Status Perkawinan, Pekerjaan TIDAK ada di struktur NIK.
+Data tersebut hanya tersedia di database resmi Dukcapil.
 """
         path = save_out(f"nik_{nik}.txt", out)
         log("ok", f"Saved: {path}")
@@ -831,7 +888,6 @@ Uniq: {uniq}
         if not raw:
             return
 
-        # Normalisasi
         num = re.sub(r"[^\d+]", "", raw)
         if num.startswith("+62"):
             num = "0" + num[3:]
@@ -848,39 +904,20 @@ Uniq: {uniq}
         log("ok", f"Normalized : {num}")
         log("ok", f"E.164      : {e164}")
 
-        # Operator dari prefix
         op = "Unknown"
         for pref, name in OPERATOR_PREFIX.items():
             if num.startswith(pref):
                 op = name
                 break
         log("ok", f"Operator   : {op}")
-
-        # Length & type
         log("info", f"Panjang    : {len(num)} digit")
         log("info", f"Tipe       : Mobile (Indonesia)")
 
-        # Coba cek presence via public endpoints (best-effort)
         log("info", "Cek presence aplikasi...")
-        apps = []
+        wa_link = f"https://wa.me/{e164[1:]}"
+        log("ok", f"WhatsApp link: {wa_link}")
+        log("info", f"Telegram check: https://t.me/{e164}")
 
-        # WhatsApp deep-link style (public)
-        try:
-            # Tidak ada free public API yang reliable tanpa key, jadi kita kasih signal + dork
-            wa_link = f"https://wa.me/{e164[1:]}"
-            log("ok", f"WhatsApp link: {wa_link}")
-            apps.append("WhatsApp (link generated)")
-        except Exception:
-            pass
-
-        # Telegram
-        try:
-            tg = f"https://t.me/{e164}"
-            log("info", f"Telegram check link: {tg}")
-        except Exception:
-            pass
-
-        # Truecaller style public search
         log("info", "Public search links:")
         queries = [
             f'"{num}"',
@@ -891,10 +928,8 @@ Uniq: {uniq}
         for q in queries:
             print(f"  https://www.google.com/search?q={urllib.parse.quote(q)}")
 
-        # Leak / breach signal (public indexes)
         log("info", "Cek sinyal kebocoran (public indexes)...")
         try:
-            # Hudson Rock style public (best-effort)
             r = requests.get(
                 f"https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-phone?phone={e164}",
                 timeout=12,
@@ -903,7 +938,7 @@ Uniq: {uniq}
             if r.status_code == 200:
                 data = r.json()
                 if data.get("stealers") or data.get("total"):
-                    log("crit", f"Infostealer signal ditemukan: {json.dumps(data)[:300]}")
+                    log("crit", f"Infostealer signal: {json.dumps(data)[:300]}")
                 else:
                     log("ok", "Tidak ada signal infostealer publik")
             else:
@@ -911,20 +946,17 @@ Uniq: {uniq}
         except Exception as e:
             log("warn", f"Leak check: {e}")
 
-        # Ringkasan
         report = f"""WhatsApp / Nomor OSINT Report
 Input     : {raw}
 Normalized: {num}
 E.164     : {e164}
 Operator  : {op}
 Panjang   : {len(num)}
-Apps link : WhatsApp wa.me/{e164[1:]}
-Telegram  : t.me/{e164}
-Dorks     : lihat output di atas
+WhatsApp  : {wa_link}
+Telegram  : https://t.me/{e164}
 """
         path = save_out(f"wa_{num}.txt", report)
         log("ok", f"Saved: {path}")
-        log("info", "Catatan: data lengkap KTP (nama, alamat, agama) dari NIK butuh akses database resmi. Tool ini kasih parse struktur + public OSINT saja.")
 
     def run(self):
         print(f"""
