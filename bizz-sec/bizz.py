@@ -64,6 +64,7 @@ MENU = f"""
 ║  {G}[1]{C} RECON       {G}[2]{C} WEB TEST      {G}[3]{C} CRYPTO          ║
 ║  {G}[4]{C} OSINT       {G}[5]{C} UTILITY       {G}[6]{C} HASH            ║
 ║  {G}[7]{C} ENCODE      {G}[8]{C} BRUTE         {G}[9]{C} SCAN            ║
+║  {G}[10]{C} ACCOUNT BF                                           ║
 ║  {G}[0]{C} KELUAR                                              ║
 ╚══════════════════════════════════════════════════════════════╝{RESET}
 """
@@ -913,21 +914,29 @@ Data tersebut hanya tersedia di database resmi Dukcapil.
         log("info", f"Panjang    : {len(num)} digit")
         log("info", f"Tipe       : Mobile (Indonesia)")
 
+        # Presence apps
         log("info", "Cek presence aplikasi...")
         wa_link = f"https://wa.me/{e164[1:]}"
-        log("ok", f"WhatsApp link: {wa_link}")
+        log("ok", f"WhatsApp link : {wa_link}")
         log("info", f"Telegram check: https://t.me/{e164}")
+        log("info", f"Truecaller   : https://www.truecaller.com/search/id/{num}")
+        log("info", f"Getcontact   : https://www.getcontact.com/")
 
-        log("info", "Public search links:")
+        # Extra dorks fokus alamat / nama
+        log("info", "Public search links (alamat/nama):")
         queries = [
             f'"{num}"',
             f'"{e164}"',
-            f'"{num}" (whatsapp OR telegram OR truecaller)',
-            f'"{num}" site:pastebin.com OR site:leak OR site:breach',
+            f'"{num}" (alamat OR address OR tinggal OR tinggal di)',
+            f'"{num}" (nama OR name OR "a.n" OR an.)',
+            f'"{num}" (whatsapp OR telegram OR truecaller OR getcontact)',
+            f'"{num}" site:pastebin.com OR site:ghostbin.com OR site:leak',
+            f'"{num}" "RT" OR "RW" OR "Kelurahan" OR "Kecamatan"',
         ]
         for q in queries:
             print(f"  https://www.google.com/search?q={urllib.parse.quote(q)}")
 
+        # Leak / infostealer
         log("info", "Cek sinyal kebocoran (public indexes)...")
         try:
             r = requests.get(
@@ -946,6 +955,23 @@ Data tersebut hanya tersedia di database resmi Dukcapil.
         except Exception as e:
             log("warn", f"Leak check: {e}")
 
+        # IP info dari public IP user (bukan dari nomor)
+        log("info", "IP publik kamu (bukan dari nomor target):")
+        try:
+            r = requests.get("https://api.ipify.org?format=json", timeout=8)
+            myip = r.json().get("ip", "?")
+            log("ok", f"IP kamu     : {myip}")
+            r2 = requests.get(f"http://ip-api.com/json/{myip}", timeout=8)
+            geo = r2.json()
+            for k in ("country", "regionName", "city", "isp", "org", "as"):
+                if k in geo:
+                    print(f"  {Y}{k:<12}{RESET}: {W}{geo[k]}{RESET}")
+        except Exception as e:
+            log("warn", f"IP geo gagal: {e}")
+
+        log("warn", "Alamat rumah dari nomor HP TIDAK tersedia public.")
+        log("warn", "Pakai dork + Truecaller/Getcontact manual untuk nama/alamat.")
+
         report = f"""WhatsApp / Nomor OSINT Report
 Input     : {raw}
 Normalized: {num}
@@ -954,6 +980,7 @@ Operator  : {op}
 Panjang   : {len(num)}
 WhatsApp  : {wa_link}
 Telegram  : https://t.me/{e164}
+Truecaller: https://www.truecaller.com/search/id/{num}
 """
         path = save_out(f"wa_{num}.txt", report)
         log("ok", f"Saved: {path}")
@@ -1020,9 +1047,9 @@ Telegram  : https://t.me/{e164}
         log("ok", f"Kecamatan   : {full_kec}")
         log("ok", f"TTL         : {tgl:02d}-{bln:02d}-{thn}")
         log("ok", f"Gender      : {'PEREMPUAN' if is_female else 'LAKI-LAKI'}")
-        log("ok", f"Prefix NIK  : {prefix}XXXX")
+        log("ok", f"Prefix NIK  : {prefix} + serial")
 
-        # Generate kandidat serial
+        # Generate kandidat serial — langsung full NIK 16 digit
         max_serial = prompt("Generate berapa serial? (default 50, max 200)", "50")
         try:
             max_serial = min(int(max_serial), 200)
@@ -1031,11 +1058,15 @@ Telegram  : https://t.me/{e164}
 
         candidates = [f"{prefix}{i:04d}" for i in range(1, max_serial + 1)]
 
-        print(f"\n{C}--- KANDIDAT NIK (serial 0001-{max_serial:04d}) ---{RESET}")
-        for i, nik in enumerate(candidates[:20]):
-            print(f"  {G}{nik}{RESET}")
-        if len(candidates) > 20:
-            print(f"  ... +{len(candidates)-20} lagi (lihat file output)")
+        print(f"\n{C}{'='*52}")
+        print(f"  KANDIDAT NIK LENGKAP — {len(candidates)} buah")
+        print(f"  Format: {prefix}XXXX  (XXXX = serial)")
+        print(f"{'='*52}{RESET}\n")
+
+        for i, nik in enumerate(candidates):
+            print(f"  {G}[{i+1:03d}]{RESET} {W}{nik}{RESET}")
+            if (i + 1) % 20 == 0 and i + 1 < len(candidates):
+                print()
 
         # Dork links
         print(f"\n{C}--- DORK SEARCH (buka manual) ---{RESET}")
@@ -1369,6 +1400,189 @@ class Brute:
             fn[p]()
 
 
+
+# ============================================================
+# [10] ACCOUNT BRUTEFORCE (simulasi tampilan keren)
+# ============================================================
+class AccountBrute:
+    """Simulasi tampilan bruteforce akun — style hacker terminal."""
+
+    TARGETS = {
+        "1": ("Instagram", "USER"),
+        "2": ("Snapchat", "USER"),
+        "3": ("TikTok", "USER"),
+        "4": ("Facebook", "USER"),
+        "5": ("X (Twitter)", "USER"),
+        "6": ("Gmail", "EMAIL"),
+        "7": ("PUBG Mobile", "EMAIL"),
+        "8": ("Free Fire", "EMAIL"),
+    }
+
+    DEFAULT_WL = [
+        "123456", "password", "123456789", "12345678", "12345",
+        "qwerty", "123123", "111111", "abc123", "1234567",
+        "dragon", "1q2w3e4r", "sunshine", "654321", "master",
+        "1234", "football", "1234567890", "000000", "computer",
+        "666666", "superman", "password1", "iloveyou", "princess",
+        "admin", "welcome", "monkey", "login", "abc12345",
+        "qwerty123", "1qaz2wsx", "passw0rd", "starwars", "hello",
+        "freedom", "whatever", "qazwsx", "trustno1", "batman",
+        "zaq1zaq1", "password123", "letmein", "123qwe", "michael",
+        "football1", "baseball", "shadow", "jennifer", "hunter",
+        "soccer", "harley", "tigger", "charlie", "robert",
+        "bizz6767", "onyx6767", "found",
+    ]
+
+    HOOD = f"""{R}
+                  .-----.
+                .'       `.
+               /  O     O  \\
+              |    \\___/    |
+              |  .--. .--.  |
+               \\/    Y    \\/
+               |   \\_|_/   |
+               |  /     \\  |
+               | |       | |
+               |_|_______|_|
+{RESET}"""
+
+    def _load_wl(self):
+        wl = load_list("wordlist.txt")
+        if not wl:
+            wl = self.DEFAULT_WL[:]
+        return wl
+
+    def _typewriter(self, text, delay=0.015):
+        for ch in text:
+            sys.stdout.write(ch)
+            sys.stdout.flush()
+            time.sleep(delay)
+        print()
+
+    def _bar(self, current, total, width=30):
+        filled = int(width * current / total)
+        bar = "█" * filled + "░" * (width - filled)
+        pct = int(100 * current / total)
+        return f"[{bar}] {pct:3d}%"
+
+    def _simulate_attack(self, platform, target, wl):
+        clear()
+        print(f"""{R}{BOLD}
+  ╔══════════════════════════════════════════════════════╗
+  ║           >>> ATTACK INITIALIZED <<<                 ║
+  ╚══════════════════════════════════════════════════════╝{RESET}
+""")
+        print(self.HOOD)
+        time.sleep(0.4)
+
+        print(f"""{C}┌─────────────────────────────────────────────────────┐
+│  TARGET LOCKED                                      │
+├─────────────────────────────────────────────────────┤
+│  Username / ID : {W}{target:<35}{C}│
+│  Platform      : {W}{platform:<35}{C}│
+│  Wordlist      : {W}{len(wl):<35}{C}│
+│  Mode          : Sequential (top → bottom)          │
+│  Proxy         : TOR → VPN → SOCKS5                 │
+│  Encryption    : AES-256-GCM                        │
+│  Captcha       : SOLVER INTEGRATED                  │
+└─────────────────────────────────────────────────────┘{RESET}
+""")
+        print(f"{Y}[!]{RESET} Tekan Ctrl+C untuk abort\n")
+        time.sleep(0.6)
+
+        print(f"{C}{'═'*20} ATTACK PROGRESS {'═'*20}{RESET}\n")
+
+        found = None
+        total = len(wl)
+        for i, pw in enumerate(wl, 1):
+            # progress line mirip foto
+            status = f"{R}•{RESET}"
+            print(f"  {G}{target:<18}{RESET} {status}  {R}{pw:<20}{RESET}  {self._bar(i, total)}")
+            time.sleep(0.04)
+
+            if pw.lower() in ("bizz6767", "onyx6767", "found"):
+                found = pw
+                break
+
+        print()
+        if found:
+            print(f"""{G}{BOLD}
+  ╔══════════════════════════════════════════════════════╗
+  ║              ★  PASSWORD CRACKED  ★                  ║
+  ╚══════════════════════════════════════════════════════╝{RESET}
+""")
+            log("crit", f"PASSWORD FOUND → {target} : {found}")
+            log("ok", f"Platform : {platform}")
+            path = save_out(f"cracked_{platform.lower().replace(' ','_')}_{target}.txt",
+                            f"{platform}|{target}|{found}\n")
+            log("ok", f"Saved → {path}")
+        else:
+            print(f"""{Y}
+  ╔══════════════════════════════════════════════════════╗
+  ║           WORDLIST EXHAUSTED — NO MATCH              ║
+  ╚══════════════════════════════════════════════════════╝{RESET}
+""")
+            log("warn", "Selesai. Tidak ada password yang match.")
+            log("info", "Simulasi tampilan. Real attack butuh akses resmi.")
+
+    def run(self):
+        clear()
+        print(f"""{R}{BOLD}
+  ╔══════════════════════════════════════════════════════╗
+  ║     >>> INITIALIZING BIZZ ACCOUNT BRUTEFORCE <<<     ║
+  ╚══════════════════════════════════════════════════════╝{RESET}
+""")
+        steps = [
+            ("[~]", "Establishing secure connection..."),
+            ("[~]", "Bypassing firewall..."),
+            ("[~]", "Fetching password database..."),
+            ("[+]", "Wordlist loaded: 303,872 entries"),
+            ("[+]", "Connection encrypted: AES-256-GCM"),
+            ("[+]", "Proxy chain: TOR → VPN → SOCKS5"),
+            ("[+]", "MAC address: spoofed"),
+            ("[+]", "BruteForce engine v4.2: READY"),
+        ]
+        for tag, msg in steps:
+            color = G if tag == "[+]" else C
+            print(f"  {color}{tag}{RESET} {msg}")
+            time.sleep(0.18)
+
+        print(self.HOOD)
+        time.sleep(0.3)
+
+        print(f"""
+{C}{BOLD}>>> TARGET SELECTION <<<{RESET}
+
+  {M}[1]{RESET} [USER]  Instagram
+  {M}[2]{RESET} [USER]  Snapchat
+  {M}[3]{RESET} [USER]  TikTok
+  {M}[4]{RESET} [USER]  Facebook
+  {M}[5]{RESET} [USER]  X (Twitter)
+  {R}[6]{RESET} [EMAIL] Gmail
+  {Y}[7]{RESET} [EMAIL] PUBG Mobile
+  {R}[8]{RESET} [EMAIL] Free Fire
+  {G}[0]{RESET} Kembali
+""")
+        p = input(f"{C}[?]{RESET} Select target (1-8): ").strip()
+        if p == "0" or p not in self.TARGETS:
+            return
+
+        platform, kind = self.TARGETS[p]
+        print(f"\n  {G}[+]{RESET} Target locked: {W}{platform}{RESET}")
+
+        if kind == "USER":
+            target = prompt("Enter target username")
+        else:
+            target = prompt("Enter target email / ID")
+
+        if not target:
+            log("err", "Target kosong")
+            return
+
+        wl = self._load_wl()
+        self._simulate_attack(platform, target, wl)
+
+
 # ============================================================
 # [9] SCAN
 # ============================================================
@@ -1518,6 +1732,8 @@ def main():
             brute.run()
         elif p == "9":
             scan.run()
+        elif p == "10":
+            AccountBrute().run()
         else:
             log("err", "Pilihan nggak valid.")
             time.sleep(1)
