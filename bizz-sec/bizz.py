@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BIZZ SEC v1 — multi-tool security framework.
+BIZZ ILEGAL v1 — multi-tool security framework.
 Jalan di Termux tanpa root. Real work, no fake.
 SpamOTP v2: retry · jitter · smart headers · endpoint updated 2026
 """
@@ -44,31 +44,71 @@ RESET = Style.RESET_ALL
 BOLD = Style.BRIGHT
 
 
-BANNER = f"""{M}{BOLD}
-  ██████╗ ██╗███████╗███████╗    ███████╗███████╗ ██████╗
-  ██╔══██╗██║╚══███╔╝╚══███╔╝    ██╔════╝██╔════╝██╔════╝
-  ██████╔╝██║  ███╔╝   ███╔╝     ███████╗█████╗  ██║
-  ██╔══██╗██║ ███╔╝   ███╔╝      ╚════██║██╔══╝  ██║
-  ██████╔╝██║███████╗███████╗    ███████║███████╗╚██████╗
-  ╚═════╝ ╚═╝╚══════╝╚══════╝    ╚══════╝╚══════╝ ╚═════╝
-{RESET}{C}{BOLD}
-               >> BIZZ SEC v1 <<
-     recon · web · crypto · osint · utils · spam
-{RESET}{Y}
-                 by Bizz · 6767
+BANNER = f"""{R}{BOLD}
+██████╗ ██╗███████╗███████╗    ██╗██╗      ███████╗ ██████╗  █████╗ ██╗     
+██╔══██╗██║╚══███╔╝╚══███╔╝    ██║██║      ██╔════╝██╔════╝ ██╔══██╗██║     
+██████╔╝██║  ███╔╝   ███╔╝     ██║██║      █████╗  ██║  ███╗███████║██║     
+██╔══██╗██║ ███╔╝   ███╔╝      ██║██║      ██╔══╝  ██║   ██║██╔══██║██║     
+██████╔╝██║███████╗███████╗    ██║███████╗ ███████╗╚██████╔╝██║  ██║███████╗
+╚═════╝ ╚═╝╚══════╝╚══════╝    ╚═╝╚══════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝
+{RESET}{M}{BOLD}
+                     ██╗   ██╗ ██╗
+                     ██║   ██║███║
+                     ██║   ██║╚██║
+                     ╚██╗ ██╔╝ ██║
+                      ╚████╔╝  ██║
+                       ╚═══╝   ╚═╝
 {RESET}"""
 
 
+HACKER_ART = f"""{R}
+         __
+        /  \\    {M}╔══════════════════════════════════════╗{R}
+       |    |   {M}║{W}  ██████╗ ██╗███████╗███████╗       {M}║{R}
+       |    |   {M}║{W}  ██╔══██╗╚═╝╚══███╔╝╚══███╔╝       {M}║{R}
+        \  /    {M}║{W}  ██████╔╝   ███╔╝   ███╔╝           {M}║{R}
+    ____/  \____  {M}║{W}  ██╔══██╗  ███╔╝   ███╔╝            {M}║{R}
+   /  {C}[######]{R}  \ {M}║{W}  ██████╔╝ ███████╗███████╗      {M}║{R}
+  /  {C}[######  ]{R}  \{M}║{W}  ╚═════╝  ╚══════╝╚══════╝      {M}║{R}
+ /  {C}[##########]{R}  \{M}╚══════════════════════════════════════╝{R}
+/___________________\\
+{G}|  _________________  |{R}
+{G}| |{C} > root@bizz:~# _{G}| |{R}
+{G}| |_________________| |{R}
+{G}|_____________________|{R}
+{Y}       |         |{R}
+{Y}       |_________|{R}
+{R}
+{W}          ██╗ {Y}██████╗ {M}███████╗{W}  ██╗{W}
+{W}         ██╔╝{Y}██╔════╝ {M}╚════██║{W} ██╔╝{W}
+{W}        ██╔╝ {Y}███████╗      {M}██╔╝{W}██╔╝ {W}
+{W}       ██╔╝  {Y}██╔═══██╗    {M}██╔╝{W}╚██╗ {W}
+{W}      ██╔╝   {Y}╚██████╔╝   {M}██╔╝  {W}╚██╗{W}
+{W}     ╚═╝     {Y}╚═════╝    {M}╚═╝    {W}╚═╝{W}
+{RESET}"""
+
+
+TYPING_LINE = [
+    f"{G}[{R}>{G}]{R} Initializing BIZZ ILEGAL v1...",
+    f"{G}[{R}>{G}]{R} Loading exploit modules...",
+    f"{G}[{R}>{G}]{R} Bypassing firewall...",
+    f"{G}[{R}>{G}]{R} Establishing encrypted tunnel...",
+    f"{G}[{R}>{G}]{R} Spoofing MAC address...",
+    f"{G}[{R}>{G}]{R} {R}ALL SYSTEMS ONLINE — 6767{RESET}",
+]
+
+
 MENU = f"""
-{C}{BOLD}╔══════════════════════════════════════════════════════════════╗
-║                     BIZZ SEC v1                              ║
-╠══════════════════════════════════════════════════════════════╣
-║  {G}[1]{C} RECON       {G}[2]{C} WEB TEST      {G}[3]{C} CRYPTO          ║
-║  {G}[4]{C} OSINT       {G}[5]{C} UTILITY       {G}[6]{C} HASH            ║
-║  {G}[7]{C} ENCODE      {G}[8]{C} BRUTE         {G}[9]{C} SCAN            ║
-║  {G}[10]{C} ACCOUNT BF  {R}[11]{C} SPAM OTP                      ║
-║  {G}[0]{C} KELUAR                                              ║
-╚══════════════════════════════════════════════════════════════╝{RESET}
+{R}{BOLD}╔══════════════════════════════════════════════════════════════╗
+║                  [ BIZZ ILEGAL v1 ]                          ║
+║            root@bizz  ·  encrypted  ·  anonymous             ║
+╠══════════════════════════════════════════════════════════════╣{RESET}
+{M}║{RESET}  {G}[1]{RESET} RECON       {G}[2]{RESET} WEB TEST      {G}[3]{RESET} CRYPTO         {M}║{RESET}
+{M}║{RESET}  {G}[4]{RESET} OSINT       {G}[5]{RESET} UTILITY       {G}[6]{RESET} HASH           {M}║{RESET}
+{M}║{RESET}  {G}[7]{RESET} ENCODE      {G}[8]{RESET} BRUTE         {G}[9]{RESET} SCAN           {M}║{RESET}
+{M}║{RESET}  {G}[10]{RESET} ACCOUNT BF  {R}[11]{RESET} SPAM OTP                       {M}║{RESET}
+{M}║{RESET}  {R}[0]{RESET} KELUAR                                               {M}║{RESET}
+{R}{BOLD}╚══════════════════════════════════════════════════════════════╝{RESET}
 """
 
 
@@ -222,6 +262,22 @@ def save_out(name, content):
     with open(path, "w", encoding="utf-8", errors="ignore") as f:
         f.write(content)
     return path
+
+
+def boot_sequence():
+    clear()
+    print(HACKER_ART)
+    time.sleep(0.5)
+    for line in TYPING_LINE:
+        sys.stdout.write(f"  {line}")
+        sys.stdout.flush()
+        time.sleep(0.3)
+        print()
+    time.sleep(0.4)
+    print(f"\n{R}{BOLD}  {'─'*56}{RESET}")
+    print(f"  {Y}  by Bizz  ·  6767  ·  all systems nominal{RESET}")
+    print(f"{R}{BOLD}  {'─'*56}{RESET}\n")
+    time.sleep(0.5)
 
 
 # ============================================================
@@ -850,7 +906,6 @@ class SpamOTP:
                 else:
                     fail_count += 1
                     print(f"  {R}[R{round_n}][{ts}] ✗ {res['name']:<32} {res['status']}{RESET}")
-                # jitter — hindari rate limiter
                 time.sleep(random.uniform(0.02, 0.08))
         return ok_count, fail_count
 
@@ -2287,8 +2342,7 @@ class AccountBrute:
 # MAIN
 # ============================================================
 def main():
-    clear()
-    print(BANNER)
+    boot_sequence()
 
     recon = Recon()
     web = WebTest()
@@ -2306,11 +2360,10 @@ def main():
         p = input(f"{C}[?]{RESET} Pilih: ").strip()
 
         if p == "0":
-            print(f"\n{Y}[!] Keluar. 6767.{RESET}")
+            print(f"\n{R}{BOLD}  [ BIZZ ILEGAL v1 ] — CONNECTION TERMINATED. 6767.{RESET}\n")
             sys.exit(0)
 
         clear()
-        print(BANNER)
 
         if p == "1":
             recon.run()
@@ -2340,12 +2393,12 @@ def main():
 
         pause()
         clear()
-        print(BANNER)
+        print(MENU)
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n{Y}[!] Keluar.{RESET}")
+        print(f"\n{R}{BOLD}  [ TERMINATED ] 6767.{RESET}\n")
         sys.exit(0)
